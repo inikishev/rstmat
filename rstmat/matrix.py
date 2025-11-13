@@ -857,7 +857,7 @@ class PassFilter(Matrix):
         else:
             raise ValueError(dim)
 
-        A = self.get_random_matrix(b, h, w, base=False)
+        A = self.get_random_matrix(b, h, w, base=True)
         if self.rng.random.random() > 0.5:
             A_fft = torch.fft.rfftn(A, dim=dim)[:, :trunc[0], :trunc[1]] # pylint:disable=not-callable
         else:
