@@ -13,8 +13,11 @@ from torch.nn import functional as F
 
 from .rng import RNG
 
-MAX_NUMEL_LINALG: int = 256 * 256
+MAX_LINALG_NUMEL: int = 256 * 256
 """Decompositions will never be picked for matrices with more than this many entries."""
+
+MAX_LINALG_SIZE: int = 512
+"""Decompositions will never be picked for matrices with largest dimension larger than this"""
 
 VERBOSE: bool = False
 """If true, prints which matrices are picked"""
@@ -47,6 +50,7 @@ class Matrix(ABC):
     """weight for picking this matrix"""
 
     MAX_NUMEL = np.inf
+    MAX_SIZE = np.inf
     BRANCHES = False
     INCREASE_PROB: bool = False
 
@@ -507,7 +511,8 @@ class ShuffleCols(Matrix):
 
 class QR_Q(Matrix):
     """Q from QR (orthogonalizes)"""
-    MAX_NUMEL = MAX_NUMEL_LINALG*2
+    MAX_NUMEL = MAX_LINALG_NUMEL * 2
+    MAX_SIZE = MAX_LINALG_SIZE * 2
     def generate(self, b, h, w):
         transpose = h < w
         if transpose:
@@ -520,8 +525,9 @@ class QR_Q(Matrix):
 
 class QR_R(Matrix):
     """R from QR"""
-    MAX_NUMEL = MAX_NUMEL_LINALG*2
-    WEIGHT=0.1
+    MAX_NUMEL = MAX_LINALG_NUMEL * 2
+    MAX_SIZE = MAX_LINALG_SIZE * 2
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         T = False
         if w < h:
@@ -824,7 +830,8 @@ class IRFFTN(Matrix):
         return torch.fft.irfftn(torch.complex(real, imag), s=s, dim=dim) # pylint:disable=not-callable
 
 class MoorePenrose(Matrix):
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_LINALG_NUMEL
+    MAX_SIZE = MAX_LINALG_SIZE
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         try:
@@ -833,7 +840,8 @@ class MoorePenrose(Matrix):
             return A
 
 class LeastSquares(Matrix):
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_LINALG_NUMEL
+    MAX_SIZE = MAX_LINALG_SIZE
     BRANCHES = True
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, min(h,w)*2)
@@ -854,7 +862,8 @@ class Vandermonde(Matrix):
 
 class Cholesky(Matrix):
     SQUARE = True
-    MAX_NUMEL = MAX_NUMEL_LINALG*2
+    MAX_NUMEL = MAX_LINALG_NUMEL * 2
+    MAX_SIZE = MAX_LINALG_SIZE
     def generate(self, b, h, w):
         assert h == w
 
@@ -865,8 +874,9 @@ class Cholesky(Matrix):
 class Sketch(Matrix):
     """projects"""
     SQUARE = True
-    MAX_NUMEL = MAX_NUMEL_LINALG*4
     BRANCHES = True
+    MAX_NUMEL = MAX_LINALG_NUMEL * 4
+    MAX_SIZE = MAX_LINALG_SIZE * 2
     def generate(self, b, h, w):
         assert h == w
 
@@ -910,7 +920,8 @@ class ProjectUnproject(Matrix):
 
 class LDL(Matrix):
     SQUARE = True
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_LINALG_NUMEL
+    MAX_SIZE = MAX_LINALG_SIZE
     def generate(self, b, h, w):
         assert h == w
 
@@ -957,7 +968,7 @@ class BinaryFuncPatch(Matrix):
 
 class Conv2D(Matrix):
     BRANCHES = True
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_LINALG_NUMEL*2
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         if h <= 2 or w <= 2: return A
@@ -1202,6 +1213,7 @@ class FlatCummin(Matrix):
 
 class Sort(Matrix):
     WEIGHT = 0.5
+    MAX_NUMEL = MAX_LINALG_NUMEL * 8
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1211,7 +1223,18 @@ class Sort(Matrix):
         sorted, indices = A.sort(dim)
         return sorted
 
+class SortNorms(Matrix):
+    WEIGHT = 0.5
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        dim = self.rng.random.choice([1, 2])
+        p = self.rng.random.choice([-torch.inf, -2, -1, -0.5, 0.5, 1, 2, torch.inf])
+        indices = A.norm(p, dim=dim)
+        return A.take_along_dim(indices, dim)
+
 class Argsort(Matrix):
+    MAX_NUMEL = MAX_LINALG_NUMEL * 8
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1221,6 +1244,7 @@ class Argsort(Matrix):
         return A.argsort(dim).to(dtype=A.dtype)
 
 class Rank(Matrix):
+    MAX_NUMEL = MAX_LINALG_NUMEL * 8
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1231,6 +1255,7 @@ class Rank(Matrix):
 
 class SortVia(Matrix):
     BRANCHES = True
+    MAX_NUMEL = MAX_LINALG_NUMEL * 8
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         S = self.get_random_matrix(b, h, w, base=True)
@@ -1335,8 +1360,9 @@ def _get_matrices(h:int, w:int, base:bool) -> list[type[Matrix]]:
     if base: return _RECTANGULAR_BASE_MATRICES
     return _RECTANGULAR_MATRICES
 
-def _get_weight(matrix: type[Matrix], level, num_ops, branch_penalty, ops_penalty, numel):
-    if numel > matrix.MAX_NUMEL: return 0
+def _get_weight(matrix: type[Matrix], level, num_ops, branch_penalty, ops_penalty, size):
+    if math.prod(size) > matrix.MAX_NUMEL: return 0
+    if max(size) > matrix.MAX_SIZE: return 0
     w = matrix.WEIGHT
     if matrix.BRANCHES:
         w = w * ((branch_penalty ** level) * (ops_penalty ** num_ops))
@@ -1367,7 +1393,7 @@ def _get_random_matrix(
 
 
     matrices = _get_matrices(h, w, base=base)
-    weights = [_get_weight(m, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, numel=b*h*w) for m in matrices]
+    weights = [_get_weight(m, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, size=(b, h, w)) for m in matrices]
     mtype = rng.random.choices(matrices, weights, k=1)[0]
 
     if VERBOSE:
