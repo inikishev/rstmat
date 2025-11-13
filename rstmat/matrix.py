@@ -1,3 +1,4 @@
+import sys
 import time
 import warnings
 import inspect
@@ -21,6 +22,7 @@ MAX_LINALG_SIZE: int = 512
 
 VERBOSE: bool = False
 """If true, prints which matrices are picked"""
+VERBOSE_FILE = sys.stdout
 
 WARN_SECONDS_TO_GENERATE: float | None = None
 """If not None, whenever matrix takes more than this many seconds to generate, emits a warning"""
@@ -114,9 +116,13 @@ class Bernoulli(Matrix):
         max = A.amax()
         if max <= torch.finfo(A.dtype).tiny * 2: return torch.randn_like(A)
 
+        if self.rng.random.random() < 0.2:
+            max = max.clip(min=1)
+
         A /= max
         try:
-            return torch.bernoulli(A, generator=self.generator)
+            eps = torch.finfo(A.dtype).eps
+            return torch.bernoulli(A.clip(eps, 1-eps), generator=self.generator)
         except RuntimeError:
             # for some reason every once in a while it would think A has entries larger than 1
             return torch.randn_like(A)
@@ -1013,11 +1019,11 @@ class Conv2D(Matrix):
         A = self.get_random_matrix(b, h, w, base=False)
         if h <= 2 or w <= 2: return A
 
-        filt_h = math.floor(self.rng.random.triangular(1, h-1, 1))
-        filt_w = math.floor(self.rng.random.triangular(1, w-1, 1))
+        filt_h = min(math.floor(self.rng.random.triangular(1, h-1, 1)), 16)
+        filt_w = min(math.floor(self.rng.random.triangular(1, w-1, 1)), 16)
         use_dilation = self.rng.random.random() > 0.5
         if use_dilation and min(h-1, w-1) > 1:
-            dilation = math.floor(self.rng.random.triangular(1, min(h-1, w-1), 1))
+            dilation = min(math.floor(self.rng.random.triangular(1, min(h-1, w-1), 1)), 16)
         else:
             dilation = 1
 
@@ -1225,12 +1231,12 @@ class Cumprod(Matrix):
     WEIGHT = 0.2
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
-        A = A / A.std().clip(min=1)
+        A = A / A.std().clip(min=1).nan_to_num(1,1,1)
 
         if b == 1: dim = self.rng.random.choice([1, 2])
         else: dim = self.rng.random.choice([0, 1, 2])
 
-        return A.cumprod(dim)
+        return A.cumprod_(dim)
 
 class FlatCumsum(Matrix):
     WEIGHT = 0.2
@@ -1438,7 +1444,7 @@ def _get_random_matrix(
     mtype = rng.random.choices(matrices, weights, k=1)[0]
 
     if VERBOSE:
-        print(f'Generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }')
+        print(f'Generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }', file=VERBOSE_FILE)
 
     if any(i == 0 for i in (b, h, w)):
         raise RuntimeError('Requested a matrix with 0 shape')
@@ -1452,11 +1458,14 @@ def _get_random_matrix(
         ).generate(b, h, w)
 
         seconds = time.perf_counter() - start
-        if seconds > 0.5:
+        if seconds > 1:
             if res.is_cuda: torch.cuda.empty_cache()
 
         if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
             warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
+
+        if VERBOSE:
+            print(f'took {seconds} seconds', file=VERBOSE_FILE)
 
     except (RuntimeError, ValueError) as e:
         # add warning to see what type of matrix it was
