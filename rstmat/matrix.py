@@ -101,9 +101,11 @@ class Bernoulli(Matrix):
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         # rescale to 0,1 for bernoulli
-        A -= A.min()
-        max = A.max()
-        if max > 1: A /= max
+        A -= A.amin()
+        max = A.amax()
+        if max <= torch.finfo(A.dtype).tiny * 2: return torch.randn_like(A)
+
+        A /= max
         return torch.bernoulli(A, generator=self.generator)
 
 class Sparsify(Matrix):
@@ -1379,12 +1381,20 @@ def _get_random_matrix(
         if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
             warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
 
+    except RuntimeError as e:
+        raise e from None # cuda out of memory
+
     except Exception as e:
         try:
-            warnings.warn(f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n{e}")
+            warnings.warn(
+                f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n"
+                f"{e.__class__.__name__}: {e}"
+            )
             res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
+            if res.is_cuda: torch.cuda.empty_cache()
+
         except Exception:
-            raise e from None # cuda out of memory
+            raise e from None # cuda out of memory which for some reason every once in a while is an assertion error
 
     if res.shape != (b, h, w):
         raise RuntimeError(f"When generating a {(b, h, w)} matrix, {mtype.__name__} returned {res.shape} instead.")
