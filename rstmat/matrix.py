@@ -1,3 +1,4 @@
+import time
 import warnings
 import inspect
 import math
@@ -14,6 +15,7 @@ from .rng import RNG
 
 MAX_NUMEL_LINALG = 4_000 * 4_000
 VERBOSE = False
+WARN_SECONDS_TO_GENERATE = None
 
 class Matrix(ABC):
     """
@@ -814,7 +816,10 @@ class MoorePenrose(Matrix):
     MAX_NUMEL = MAX_NUMEL_LINALG
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
-        return torch.linalg.pinv(A).mH # pylint:disable=not-callable
+        try:
+            return torch.linalg.pinv(A).mH # pylint:disable=not-callable
+        except torch.linalg.LinAlgError:
+            return A
 
 class LeastSquares(Matrix):
     MAX_NUMEL = MAX_NUMEL_LINALG
@@ -1360,8 +1365,19 @@ def _get_random_matrix(
         raise RuntimeError('Requested a matrix with 0 shape')
 
     try:
-        res = mtype(level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, dtype=dtype, device=device, rng=rng
+        start = time.perf_counter()
+
+        res = mtype(
+            level=level, num_ops=num_ops, branch_penalty=branch_penalty,
+            ops_penalty=ops_penalty, dtype=dtype, device=device, rng=rng
         ).generate(b, h, w)
+
+        seconds = time.perf_counter() - start
+        if seconds > 0.5:
+            if res.is_cuda: torch.cuda.empty_cache()
+
+        if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
+            warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
 
     except Exception as e:
         try:
