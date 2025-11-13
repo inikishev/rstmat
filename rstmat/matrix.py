@@ -13,7 +13,7 @@ from torch.nn import functional as F
 
 from .rng import RNG
 
-MAX_LINALG_NUMEL: int = 256 * 256
+MAX_LINALG_NUMEL: int = 512 * 512
 """Decompositions will never be picked for matrices with more than this many entries."""
 
 MAX_LINALG_SIZE: int = 512
