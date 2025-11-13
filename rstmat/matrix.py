@@ -1364,8 +1364,11 @@ def _get_random_matrix(
         ).generate(b, h, w)
 
     except Exception as e:
-        warnings.warn(f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n{e}")
-        res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
+        try:
+            warnings.warn(f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n{e}")
+            res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
+        except Exception:
+            raise e from None # cuda out of memory
 
     if res.shape != (b, h, w):
         raise RuntimeError(f"When generating a {(b, h, w)} matrix, {mtype.__name__} returned {res.shape} instead.")
