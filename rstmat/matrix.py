@@ -1343,6 +1343,7 @@ def _get_weight(matrix: type[Matrix], level, num_ops, branch_penalty, ops_penalt
     if matrix.INCREASE_PROB: w = w * 1.1 ** level
     return w
 
+@torch.no_grad
 def _get_random_matrix(
     b: int, h:int, w:int,
 

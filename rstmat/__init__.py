@@ -10,6 +10,7 @@ __all__ = [
     "random_matrix",
 ]
 
+@torch.no_grad
 def random_matrix(
     size: int | Sequence[int],
     dtype: torch.dtype = torch.get_default_dtype(),
