@@ -25,7 +25,7 @@ authors = [
   {name = "Ivan Nikishev", email = "nkshv2@gmail.com"},
 ]
 license = {file = "LICENSE"}
-keywords = ["linear algebra", "random", "linalg", "torch", "numpy"]
+keywords = ["linear algebra", "random", "linalg", "torch"]
 
 
 [project.urls]
