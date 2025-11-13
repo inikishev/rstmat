@@ -271,52 +271,70 @@ class ReplaceDiagonal(Matrix):
 class Symmetrize(Matrix):
     """A + A^T"""
     SQUARE = True
+    WEIGHT = 0.75
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
-        return A + A.mH
+        S = A + A.mH
+        if self.rng.random.random() > 0.5:
+            S = S.diagonal_scatter(S.diagonal(dim1=-2,dim2=-1)/2, dim1=-2, dim2=-1)
+        return S
 
 class SymmetrizeT(Matrix):
     """(A + A^T)^T"""
     SQUARE = True
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
-        return (A + A.mH).mH
+        S = A + A.mH
+        if self.rng.random.random() > 0.5:
+            S = S.diagonal_scatter(S.diagonal(dim1=-2,dim2=-1)/2, dim1=-2, dim2=-1)
+        return S.mH
 
 
 class ATA(Matrix):
     """A^T A, also takes care of symmetric low rank"""
     SQUARE = True
+    WEIGHT = 0.8
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, h * 2)
         A = self.get_random_matrix(b, k, h, base=True)
+        C = A.mH @ A
+        if self.rng.random.random() > 0.5:
+            C = C.diagonal_scatter(C.diagonal(dim1=-2, dim2=-1).sqrt(), dim1=-2, dim2=-1)
         return A.mH @ A
 
 class SPD(Matrix):
-    """A^T A + I except it can be negative too"""
+    """A^T A + yI"""
     SQUARE = True
-    WEIGHT = 0.3
+    WEIGHT = 0.2
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, h * 2)
         A = self.get_random_matrix(b, k, h, base=True)
-        reg = self.rng.random.uniform(-2, max(torch.linalg.vector_norm(A).item(), 3)) # pylint:disable=not-callable
+        reg = self.rng.random.triangular(0, 1)**2
         I = torch.eye(h, device=self.device, dtype=self.dtype)
         return (A.mH @ A) + (I * reg)
 
 class Regularize(Matrix):
     """A^T A + I"""
-    WEIGHT = 0.3
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
-        I = torch.eye(h, w, device=self.device, dtype=self.dtype)
-        reg = self.rng.random.uniform(-2, max(torch.linalg.vector_norm(A).item(), 3)) # pylint:disable=not-callable
-        return A + (I * reg)
+        reg = self.rng.random.triangular(0, 1)**4
+        if self.rng.random.random() < 0.1: reg = -reg
+        r = max(h-1, 1)
+        if self.rng.random.random() > 0.5: offset = 0
+        else: offset = self.rng.random.randint(-r, r)
+        return A.diagonal_scatter(A.diagonal(offset=offset, dim1=-2,dim2=-1) + reg, offset=offset, dim1=-2,dim2=-1)
 
 class ScaleDiag(Matrix):
-    WEIGHT = 0.3
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         scale = self.rng.random.uniform(-2, 2)
-        return A.diagonal_scatter(A.diagonal(dim1=-2,dim2=-1) * scale, dim1=-2,dim2=-1)
+        r = max(h-1, 1)
+        if self.rng.random.random() > 0.5: offset = 0
+        else: offset = self.rng.random.randint(-r, r)
+        return A.diagonal_scatter(A.diagonal(offset=offset, dim1=-2,dim2=-1) * scale, offset=offset, dim1=-2,dim2=-1)
 
 class AB(Matrix):
     """Matmul of two matrices, also takes care of low rank"""
