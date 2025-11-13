@@ -809,25 +809,64 @@ class FFTNImag(Matrix):
         A = self.get_random_matrix(b, h, w, base=False)
         return torch.fft.fftn(A, dim=dim).imag.to(self.dtype) # pylint:disable=not-callable
 
-class IRFFTN(Matrix):
+class IFFTN(Matrix):
     BRANCHES = True
     def generate(self, b, h, w):
         dim = self.rng.random.choice(((1,), (2,), (1, 2)))
-        hr = h
-        wr = w
-        if dim == (1, ):
-            s = (h, )
-            hr = math.ceil(h / 2)
-        elif dim == (2, ):
-            s = (w, )
-            wr = math.ceil(w / 2)
-        else:
-            s = (h, w, )
-            wr = math.ceil(w / 2) # fft reduces last dim
+        s = [(b, h, w)[d] for d in dim]
 
-        real = self.get_random_matrix(b, hr, wr, base=False)
-        imag = self.get_random_matrix(b, hr, wr, base=False)
-        return torch.fft.irfftn(torch.complex(real, imag), s=s, dim=dim) # pylint:disable=not-callable
+        A = self.get_random_matrix(b, h, w, base=False)
+        B = self.get_random_matrix(b, h, w, base=False)
+        C = torch.complex(A, B)
+        rec = torch.fft.ifftn(C, dim=dim, s=s) # pylint:disable=not-callable
+
+        if self.rng.random.random() > 0.5:
+            return rec.real.to(self.dtype)
+
+        return rec.imag.to(self.dtype)
+
+class SpectralMix(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        dim = self.rng.random.choice(((1,), (2,), (1, 2)))
+        s = [(b, h, w)[d] for d in dim]
+
+        A = self.get_random_matrix(b, h, w, base=False)
+        B = self.get_random_matrix(b, h, w, base=False)
+
+        A_fft = torch.fft.rfftn(A, dim=dim) # pylint:disable=not-callable
+        B_fft = torch.fft.rfftn(B, dim=dim) # pylint:disable=not-callable
+
+        C = torch.abs(A_fft) * torch.exp(1j * torch.angle(B_fft))
+        rec = torch.fft.irfftn(C, dim=dim, s=s) # pylint:disable=not-callable
+
+        return rec
+
+class PassFilter(Matrix):
+    def generate(self, b, h, w):
+        dim = self.rng.random.choice(((1,), (2,), (1, 2)))
+        s = [(b, h, w)[d] for d in dim]
+
+
+        if dim == (1, ):
+            trunc = (self.rng.random.randrange(1, max(h, 2)), w)
+        elif dim == (2, ):
+            trunc = (h, self.rng.random.randrange(1, max(w, 2)))
+        elif dim == (1, 2):
+            trunc = (self.rng.random.randrange(1, max(h, 2)), self.rng.random.randrange(1, max(w, 2)))
+        else:
+            raise ValueError(dim)
+
+        A = self.get_random_matrix(b, h, w, base=False)
+        if self.rng.random.random() > 0.5:
+            A_fft = torch.fft.rfftn(A, dim=dim)[:, :trunc[0], :trunc[1]] # pylint:disable=not-callable
+        else:
+            A_fft = torch.fft.rfftn(A, dim=dim)[:, -trunc[0]:, -trunc[1]:] # pylint:disable=not-callable
+
+        rec = torch.fft.irfftn(A_fft, dim=dim, s=s) # pylint:disable=not-callable
+
+        return rec
+
 
 class MoorePenrose(Matrix):
     MAX_NUMEL = MAX_LINALG_NUMEL
@@ -1419,7 +1458,7 @@ def _get_random_matrix(
         if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
             warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
 
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         # add warning to see what type of matrix it was
         warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }")
         raise e from None # cuda out of memory
