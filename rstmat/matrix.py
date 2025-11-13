@@ -198,7 +198,7 @@ class Identity(Matrix):
     """Square identity (for rectangular ReplaceDiag can generate it), this increases odds of identity"""
     BASE = False
     SQUARE = True
-    WEIGHT = 0.5
+    WEIGHT = 0.05
     def generate(self, b, h, w):
         return torch.eye(h, dtype=self.dtype, device=self.device).unsqueeze(0).repeat_interleave(repeats=b, dim=0).clone()
 
@@ -989,6 +989,7 @@ class Cholesky(Matrix):
     SQUARE = True
     MAX_NUMEL = MAX_LINALG_NUMEL * 2
     MAX_SIZE = MAX_LINALG_SIZE
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         assert h == w
 
