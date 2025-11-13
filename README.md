@@ -159,7 +159,7 @@ rank = 121/128, cond=11409373184.0
 
 </details>
 
-### Other stuff
+## Other stuff
 
 It's easy to define new matrix types, you can look at the code in <https://github.com/inikishev/rstmat/blob/main/rstmat/matrix.py> .
 What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution.
