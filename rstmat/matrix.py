@@ -120,6 +120,7 @@ class Bernoulli(Matrix):
             max = max.clip(min=1)
 
         A /= max
+        A = A.nan_to_num(0.5, 0.5, 0.5)
         try:
             eps = torch.finfo(A.dtype).eps
             return torch.bernoulli(A.clip(eps, 1-eps), generator=self.generator)
@@ -1034,8 +1035,8 @@ class Conv2D(Matrix):
 
 class Cut(Matrix):
     def generate(self, b, h, w):
-        rows = h - self.rng.random.randrange(0, max(h//4, 1))
-        cols = w - self.rng.random.randrange(0, max(w//4, 1))
+        rows = h + self.rng.random.randrange(0, max(h//4, 1))
+        cols = w + self.rng.random.randrange(0, max(w//4, 1))
 
         ch = self.rng.random.choice([0,1,2])
         if ch == 0: rows = h
