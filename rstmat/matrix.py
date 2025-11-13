@@ -1,3 +1,4 @@
+import warnings
 import inspect
 import math
 import random
@@ -1033,14 +1034,23 @@ class BatchUnwrap(Matrix):
         A = A[:b*h*w]
         return A.reshape(b, h, w)
 
+def _dtype_clip(v, finfo: torch.finfo):
+    if v > finfo.max / 2:
+        return finfo.max / 2
+    if v < finfo.min:
+        return finfo.min / 2
+    return v
+
 def _get_triangular_val(A: torch.Tensor, rng: RNG):
-    Amin = A.amin().item()
-    Amax = A.amax().item()
-    s = Amax - Amin
+    fi = torch.finfo(A.dtype)
+    Amin = _dtype_clip(A.amin().item(), fi)
+    Amax = _dtype_clip(A.amax().item(), fi)
+    s = _dtype_clip(Amax - Amin, fi)
     if Amax > 0: Amin = min(Amin, 0)
     if Amin < 0: Amax = max(Amax, 0)
 
-    return rng.random.triangular(Amin-s, Amax+s)
+
+    return rng.random.triangular(_dtype_clip(Amin-s , fi), _dtype_clip(Amax+s, fi))
 
 class SetValue(Matrix):
     WEIGHT = 4
@@ -1349,8 +1359,13 @@ def _get_random_matrix(
     if any(i == 0 for i in (b, h, w)):
         raise RuntimeError('Requested a matrix with 0 shape')
 
-    res = mtype(level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, dtype=dtype, device=device, rng=rng
-    ).generate(b, h, w)
+    try:
+        res = mtype(level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, dtype=dtype, device=device, rng=rng
+        ).generate(b, h, w)
+
+    except Exception as e:
+        warnings.warn(f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n{e}")
+        res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
 
     if res.shape != (b, h, w):
         raise RuntimeError(f"When generating a {(b, h, w)} matrix, {mtype.__name__} returned {res.shape} instead.")
