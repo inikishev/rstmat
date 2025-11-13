@@ -95,22 +95,35 @@ class Matrix(ABC):
 
 
 class RandomNormal(Matrix):
-    # WEIGHT = 2
     INCREASE_PROB = True
     def generate(self, b, h, w):
         return torch.randn((b, h, w), dtype=self.dtype, device=self.device, generator=self.generator)
 
 class RandomUniform(Matrix):
-    # WEIGHT = 2
     INCREASE_PROB = True
     def generate(self, b, h, w):
         return torch.empty((b, h, w), dtype=self.dtype, device=self.device).uniform_(-1, 1, generator=self.generator)
 
 class RandomRademacher(Matrix):
-    WEIGHT = 0.5
     INCREASE_PROB = True
+    WEIGHT = 0.5
     def generate(self, b, h, w):
         return torch.randint(0, 2, size=(b, h, w), device=self.device, dtype=self.dtype, generator=self.generator) * 2 - 1
+
+_DISTRIBUTIONS = (
+    torch.distributions.Laplace(loc=0, scale=1),
+    torch.distributions.Cauchy(loc=0, scale=1),
+    torch.distributions.Exponential(1),
+    torch.distributions.Poisson(4),
+    torch.distributions.Gamma(1, 1),
+)
+class RandomDistribution(Matrix):
+    INCREASE_PROB = True
+    def generate(self, b, h, w):
+        dist = self.rng.random.choice(_DISTRIBUTIONS)
+        return dist.sample((b, h, w)).to(dtype=self.dtype, device=self.device)
+
+
 
 class Bernoulli(Matrix):
     """Bernoulli entries with probabilities given by another matrix"""
@@ -170,7 +183,7 @@ class SparsifyCols(Matrix):
 
 class Full(Matrix):
     BASE = False
-    WEIGHT = 0.1
+    WEIGHT = 0.05
     def generate(self, b, h, w):
         fill_value = self.rng.random.uniform(-2, 2)
         return torch.full(size=(b, h, w), fill_value=fill_value, dtype=self.dtype, device=self.device)
@@ -185,6 +198,7 @@ class Identity(Matrix):
     """Square identity (for rectangular ReplaceDiag can generate it), this increases odds of identity"""
     BASE = False
     SQUARE = True
+    WEIGHT = 0.5
     def generate(self, b, h, w):
         return torch.eye(h, dtype=self.dtype, device=self.device).unsqueeze(0).repeat_interleave(repeats=b, dim=0).clone()
 
@@ -239,7 +253,7 @@ class ReplaceDiagonal(Matrix):
             h, w = w, h
 
         # matrix to take diagonal from
-        if h == w: offset = 0
+        if h == w or self.rng.random.random() > 0.5: offset = 0
         else: offset = self.rng.random.randint(0, h-w)
         diag = A.diagonal(offset=-offset, dim1=-2, dim2=-1)
 
@@ -261,6 +275,14 @@ class Symmetrize(Matrix):
         A = self.get_random_matrix(b, h, w, base=True)
         return A + A.mH
 
+class SymmetrizeT(Matrix):
+    """(A + A^T)^T"""
+    SQUARE = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        return (A + A.mH).mH
+
+
 class ATA(Matrix):
     """A^T A, also takes care of symmetric low rank"""
     SQUARE = True
@@ -268,6 +290,33 @@ class ATA(Matrix):
         k = self.rng.random.randint(1, h * 2)
         A = self.get_random_matrix(b, k, h, base=True)
         return A.mH @ A
+
+class SPD(Matrix):
+    """A^T A + I except it can be negative too"""
+    SQUARE = True
+    WEIGHT = 0.3
+    def generate(self, b, h, w):
+        k = self.rng.random.randint(1, h * 2)
+        A = self.get_random_matrix(b, k, h, base=True)
+        reg = self.rng.random.uniform(-2, max(torch.linalg.vector_norm(A).item(), 3)) # pylint:disable=not-callable
+        I = torch.eye(h, device=self.device, dtype=self.dtype)
+        return (A.mH @ A) + (I * reg)
+
+class Regularize(Matrix):
+    """A^T A + I"""
+    WEIGHT = 0.3
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        I = torch.eye(h, w, device=self.device, dtype=self.dtype)
+        reg = self.rng.random.uniform(-2, max(torch.linalg.vector_norm(A).item(), 3)) # pylint:disable=not-callable
+        return A + (I * reg)
+
+class ScaleDiag(Matrix):
+    WEIGHT = 0.3
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        scale = self.rng.random.uniform(-2, 2)
+        return A.diagonal_scatter(A.diagonal(dim1=-2,dim2=-1) * scale, dim1=-2,dim2=-1)
 
 class AB(Matrix):
     """Matmul of two matrices, also takes care of low rank"""
@@ -382,10 +431,12 @@ class ElementwiseSin(Matrix):
         return self.get_random_matrix(b, h, w, base=True).sin()
 
 class RowSoftmax(Matrix):
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).softmax(-2)
 
 class ColSoftmax(Matrix):
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).softmax(-1)
 
@@ -555,13 +606,15 @@ class QR_R(Matrix):
 class Triu(Matrix):
     def generate(self, b, h, w):
         r = max(h-1, 1)
-        offset = self.rng.random.randint(-r, r)
+        if self.rng.random.random() > 0.5: offset = 0
+        else: offset = self.rng.random.randint(-r, r)
         return self.get_random_matrix(b, h, w, base=True).triu(diagonal=offset)
 
 class Tril(Matrix):
     def generate(self, b, h, w):
         r = max(h-1, 1)
-        offset = self.rng.random.randint(-r, r)
+        if self.rng.random.random() > 0.5: offset = 0
+        else: offset = self.rng.random.randint(-r, r)
         return self.get_random_matrix(b, h, w, base=True).tril(diagonal=offset)
 
 class Kron(Matrix):
@@ -611,7 +664,8 @@ class TrilTru(Matrix):
         B = self.get_random_matrix(b, h, w, base=False)
 
         r = max(h-2, 1)
-        offset = self.rng.random.randint(-r, r)
+        if self.rng.random.random() > 0.5: offset=0
+        else: offset = self.rng.random.randint(-r, r)
         return A.tril(offset) + B.triu(offset+1)
 
 class MaskedMix(Matrix):
@@ -660,7 +714,7 @@ class RepeatCols(Matrix):
         return A.repeat_interleave(repeats=n, dim=2)[:, :, :w]
 
 class Rank1Normal(Matrix):
-    WEIGHT = 0.3
+    WEIGHT = 0.5
     BASE = False
     def generate(self, b, h, w):
         v1 = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
@@ -669,7 +723,7 @@ class Rank1Normal(Matrix):
         return v1 @ v2
 
 class Rank1Rademacher(Matrix):
-    WEIGHT = 0.3
+    WEIGHT = 0.5
     BASE = False
     def generate(self, b, h, w):
         v1 = torch.randint(0, 2, size=(b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator) * 2 - 1
@@ -678,7 +732,7 @@ class Rank1Rademacher(Matrix):
         return v1 @ v2
 
 class Rank1Sparse(Matrix):
-    WEIGHT = 0.3
+    WEIGHT = 0.5
     BASE = False
     def generate(self, b, h, w):
         p1 = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
@@ -690,14 +744,14 @@ class Rank1Sparse(Matrix):
 
 class SymmetricRank1Normal(Matrix):
     SQUARE = True
-    WEIGHT = 0.2
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         v = torch.randn((b, h), device=self.device, dtype=self.dtype, generator=self.generator)
         return v.unsqueeze(-1) @ v.unsqueeze(-2)
 
 class SymmetricRank1Sparse(Matrix):
     SQUARE = True
-    WEIGHT = 0.2
+    WEIGHT = 0.25
     def generate(self, b, h, w):
         p = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
         v = torch.bernoulli(torch.full((b, h), p, device=self.device, dtype=self.dtype), generator=self.generator)
@@ -724,7 +778,6 @@ class TimesRank1(Matrix):
 
 class Tile(Matrix):
     BASE = False
-    WEIGHT = 0.5
     def generate(self, b, h, w):
         h_n = math.ceil(self.rng.random.uniform(2, h/2))
         h_k = math.ceil(h / h_n)
@@ -751,28 +804,28 @@ class ScatterTile(Matrix):
 
 
 class ConstantRow(Matrix):
-    WEIGHT = 0.25
+    WEIGHT = 0.2
     BASE = False
     def generate(self, b, h, w):
         v = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
         return v.repeat(1, 1, w)
 
 class ConstantCol(Matrix):
-    WEIGHT = 0.25
+    WEIGHT = 0.2
     BASE = False
     def generate(self, b, h, w):
         v = torch.randn((b, 1, w), device=self.device, dtype=self.dtype, generator=self.generator)
         return v.repeat(1, h, 1)
 
 class RowMean(Matrix):
-    WEIGHT = 0.25
+    WEIGHT = 0.2
     BASE = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         return A.mean(1, keepdim=True).repeat_interleave(repeats=h, dim=1).clone()
 
 class ColMean(Matrix):
-    WEIGHT = 0.25
+    WEIGHT = 0.2
     BASE = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
@@ -884,8 +937,9 @@ class PassFilter(Matrix):
 class MoorePenrose(Matrix):
     MAX_NUMEL = MAX_LINALG_NUMEL
     MAX_SIZE = MAX_LINALG_SIZE
+    WEIGHT = 0.1
     def generate(self, b, h, w):
-        A = self.get_random_matrix(b, h, w, base=False)
+        A = self.get_random_matrix(b, h, w, base=True)
         try:
             return torch.linalg.pinv(A).mH # pylint:disable=not-callable
         except torch.linalg.LinAlgError:
@@ -895,6 +949,7 @@ class LeastSquares(Matrix):
     MAX_NUMEL = MAX_LINALG_NUMEL
     MAX_SIZE = MAX_LINALG_SIZE
     BRANCHES = True
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, min(h,w)*2)
         A = self.get_random_matrix(b, k, h, base=False)
@@ -907,9 +962,9 @@ class LeastSquares(Matrix):
 class Vandermonde(Matrix):
     WEIGHT = 0.1
     def generate(self, b, h, w):
-        if h == 1 or w == 1: return self.get_random_matrix(b,h,w, base=False)
+        if h == 1 or w == 1: return self.get_random_matrix(b,h,w, base=True)
 
-        v = torch.randn((b, h), device=self.device, dtype=self.dtype, generator=self.generator)
+        v = self.get_random_matrix(1, b, h, base=True)[0]
         return torch.linalg.vander(v, N=w) # pylint:disable=not-callable
 
 class Cholesky(Matrix):
@@ -919,7 +974,7 @@ class Cholesky(Matrix):
     def generate(self, b, h, w):
         assert h == w
 
-        A = self.get_random_matrix(b, h, h, base=False)
+        A = self.get_random_matrix(b, h, h, base=True)
         L, info = torch.linalg.cholesky_ex(A, upper=random.choice((True, False))) # pylint:disable=not-callable
         return L
 
@@ -974,10 +1029,11 @@ class LDL(Matrix):
     SQUARE = True
     MAX_NUMEL = MAX_LINALG_NUMEL
     MAX_SIZE = MAX_LINALG_SIZE
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         assert h == w
 
-        A = self.get_random_matrix(b, h, h, base=False)
+        A = self.get_random_matrix(b, h, h, base=True)
         LD, pivots, info = torch.linalg.ldl_factor_ex(A) # pylint:disable=not-callable
         return LD
 
@@ -1177,7 +1233,7 @@ class SetCol(Matrix):
         return A
 
 class SoftenNorm(Matrix):
-    WEIGHT = 5
+    WEIGHT = 10
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1187,14 +1243,27 @@ class SoftenNorm(Matrix):
             A = A + torch.randn_like(A) * 0.1
             norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
 
-        target_norm = norm.lerp(torch.ones_like(norm), weight=self.rng.random.triangular(0,1,1)**2)
+        target_norm = norm.lerp(torch.ones_like(norm), weight=self.rng.random.triangular(0,1,0)**2)
         scale = target_norm / norm
 
         return A * scale
 
+
+class SoftenMean(Matrix):
+    WEIGHT = 10
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        mean = A.mean((1,2), keepdim=True) * self.rng.random.triangular(0,1,0)**2
+        return A - mean
+
+class Negative(Matrix):
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        return A.amax() - A
+
 # those three are to make matrices more random on average
 class AddNoise(Matrix):
-    WEIGHT = 1.5
+    WEIGHT = 3
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         norm = torch.linalg.vector_norm(A, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
@@ -1205,7 +1274,7 @@ class AddNoise(Matrix):
         return A
 
 class MulNoise(Matrix):
-    WEIGHT = 1.5
+    WEIGHT = 3
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         scale = self.rng.random.triangular(0, 1, 0)**2
@@ -1215,7 +1284,7 @@ class MulNoise(Matrix):
 
 class Jitter(Matrix):
     SQUARE = True
-    WEIGHT = 3
+    WEIGHT = 5
     def generate(self, b, h, w):
         assert h == w
 
@@ -1254,7 +1323,7 @@ class Cumsum(Matrix):
         return A.cumsum(dim)
 
 class Cummax(Matrix):
-    WEIGHT = 0.2
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1265,7 +1334,7 @@ class Cummax(Matrix):
         return values
 
 class Cummin(Matrix):
-    WEIGHT = 0.2
+    WEIGHT = 0.1
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1276,7 +1345,7 @@ class Cummin(Matrix):
         return values
 
 class Cumprod(Matrix):
-    WEIGHT = 0.2
+    WEIGHT = 0.05
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         A = A / A.std().clip(min=1).nan_to_num(1,1,1)
@@ -1293,14 +1362,14 @@ class FlatCumsum(Matrix):
         return A.cumsum(-1).reshape(b, h, w)
 
 class FlatCummax(Matrix):
-    WEIGHT = 0.2
+    WEIGHT = 0.05
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         values, indices = A.cummax(-1)
         return values.reshape(b, h, w)
 
 class FlatCummin(Matrix):
-    WEIGHT = 0.2
+    WEIGHT = 0.05
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         values, indices = A.cummin(-1)
@@ -1418,21 +1487,174 @@ class ZeropowerNS(Matrix):
 
 class Circulant(Matrix):
     SQUARE = True
-    WEIGHT = 0.5
+    WEIGHT = 0.2
+    BASE = False
     def generate(self, b, h, w):
         assert h == w
-        c = np.random.normal(size=(b, h))
+        c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
         circulant = scipy.linalg.circulant(c).copy()
-        return torch.from_numpy(circulant).float().contiguous().to(device=self.device, dtype=self.dtype)
+        return torch.from_numpy(circulant).contiguous().to(device=self.device, dtype=self.dtype)
 
 class Fielder(Matrix):
     SQUARE = True
-    WEIGHT = 0.5
+    WEIGHT = 0.2
+    BASE = False
     def generate(self, b, h, w):
         assert h == w
-        c = np.random.normal(size=(b, h))
+        c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
         fiedler = scipy.linalg.fiedler(c).copy()
-        return torch.from_numpy(fiedler).float().contiguous().to(device=self.device, dtype=self.dtype)
+        return torch.from_numpy(fiedler).contiguous().to(device=self.device, dtype=self.dtype)
+
+class Toeplitz(Matrix):
+    WEIGHT = 0.2
+    MAX_NUMEL = 128 * 1024 * 1024
+    BASE = False
+    def generate(self, b, h, w):
+        if b > 128: return self.get_random_matrix(b, h, w, base=True)
+
+        c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
+        if h == w and self.rng.random.random() > 0.5:
+            r = [None] * b
+        else:
+            r = self.get_random_matrix(1, b, w, base=True).numpy(force=True)[0]
+
+        toeplitz = np.stack([scipy.linalg.toeplitz(c_i, r_i) for c_i, r_i in zip(c, r)])
+        return torch.from_numpy(toeplitz).contiguous().to(device=self.device, dtype=self.dtype)
+
+class Hankel(Matrix):
+    WEIGHT = 0.2
+    MAX_NUMEL = 128 * 1024 * 1024
+    BASE = False
+    def generate(self, b, h, w):
+        if b > 128: return self.get_random_matrix(b, h, w, base=True)
+
+        c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
+        if h == w and self.rng.random.random() > 0.5:
+            r = [None] * b
+        else:
+            r = self.get_random_matrix(1, b, w, base=True).numpy(force=True)[0]
+
+        toeplitz = np.stack([scipy.linalg.hankel(c_i, r_i) for c_i, r_i in zip(c, r)])
+        return torch.from_numpy(toeplitz).contiguous().to(device=self.device, dtype=self.dtype)
+
+class Hadamard(Matrix):
+    WEIGHT = 0.2
+    SQUARE = True
+    BASE = False
+    def generate(self, b, h, w):
+        if b > 1: return self.get_random_matrix(b, h, w, base=True)
+        if math.log2(h) % 1 != 0: return self.get_random_matrix(b, h, w, base=True)
+
+        hadamard = scipy.linalg.hadamard(h)[None, :]
+        return torch.from_numpy(hadamard).contiguous().to(device=self.device, dtype=self.dtype)
+
+class DFT(Matrix):
+    WEIGHT = 0.2
+    SQUARE = True
+    BASE = False
+    def generate(self, b, h, w):
+        if b > 1: return self.get_random_matrix(b, h, w, base=True)
+
+        scale = self.rng.random.choice([None, "sqrtn", "n"])
+        dft = scipy.linalg.dft(h, scale=scale)[None, :]
+
+        if self.rng.random.random() > 0.5: A = dft.real
+        else: A = dft.imag
+        return torch.from_numpy(A).contiguous().to(device=self.device, dtype=self.dtype)
+
+
+class CopySign(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        B = self.get_random_matrix(b, h, w, base=False)
+        return A.copysign(B)
+
+# ----------------------------- AI SUGGESTED ONES ---------------------------- #
+class RandomGraphLaplacian(Matrix):
+    """L = D - A. Symmetric Positive Semi-Definite. apparently has some kind of specific sparsity pattern"""
+    SQUARE = True
+    WEIGHT = 0.1
+    def generate(self, b, h, w):
+        assert h == w
+        p = self.rng.random.uniform(0.1, 0.5)
+        A = torch.bernoulli(torch.full((b, h, h), p, device=self.device, dtype=self.dtype))
+        A = A.triu(1) + A.triu(1).mH
+        D = torch.diag_embed(A.sum(dim=-1))
+        return D - A
+
+class Householder(Matrix):
+    """I - 2vv^T / v^Tv. Symmetric and Orthogonal."""
+    SQUARE = True
+    WEIGHT = 0.1
+    def generate(self, b, h, w):
+        v = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
+        v_norm_sq = (v.mH @ v)
+
+        I = torch.eye(h, device=self.device, dtype=self.dtype).unsqueeze(0)
+        H = I - 2 * (v @ v.mH) / (v_norm_sq + torch.finfo(self.dtype).eps)
+        return H
+
+class CayleyRotation(Matrix):
+    """(I - A)(I + A)^-1 for skew-symmetric A. Generates rotations (SO(n))."""
+    SQUARE = True
+    WEIGHT = 0.2
+    MAX_SIZE = MAX_LINALG_SIZE
+    def generate(self, b, h, w):
+        X = self.get_random_matrix(b, h, h, base=True)
+        A = X - X.mH
+        I = torch.eye(h, device=self.device, dtype=self.dtype).unsqueeze(0)
+
+        # Q = (I - A)(I + A)^-1
+        numer = I - A
+        denom = I + A
+        return torch.linalg.solve(denom, numer) # pylint:disable=not-callable
+
+class SkewSymmetric(Matrix):
+    """A^T = -A. Eigenvalues are pure imaginary."""
+    SQUARE = True
+    WEIGHT = 0.2
+    def generate(self, b, h, w):
+        assert h == w
+        A = self.get_random_matrix(b, h, h, base=True)
+        return A - A.mH
+
+class Nilpotent(Matrix):
+    """Strictly Triangular (if square). A^k = 0 for k >= h."""
+    WEIGHT = 0.2
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        if min(h, w) == 1: return A
+        return A.triu(diagonal=1)
+
+class Commutator(Matrix):
+    """[A, B] = AB - BA. Trace is always 0."""
+    SQUARE = True
+    BRANCHES = True
+    WEIGHT = 0.2
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, h, base=False)
+        B = self.get_random_matrix(b, h, h, base=False)
+        return A @ B - B @ A
+
+class Companion(Matrix):
+    """
+    Companion matrix of a polynomial.
+    Ones on subdiagonal, random coeff on last column.
+    """
+    SQUARE = True
+    WEIGHT = 0.1
+    def generate(self, b, h, w):
+        if h < 2: return self.get_random_matrix(b, h, h, base=True)
+
+        # Subdiagonal ones
+        res = torch.diag_embed(torch.ones((b, h-1), device=self.device, dtype=self.dtype), offset=-1)
+
+        # Random last column (coefficients)
+        coeffs = self.get_random_matrix(b, h, 1, base=True).squeeze(-1)
+        res[:, :, -1] = -coeffs
+
+        return res
 
 
 # ---------------------------------------------------------------------------- #
