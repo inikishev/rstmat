@@ -13,7 +13,7 @@ from torch.nn import functional as F
 
 from .rng import RNG
 
-MAX_NUMEL_LINALG: int = 4096 * 4096
+MAX_NUMEL_LINALG: int = 256 * 256
 """Decompositions will never be picked for matrices with more than this many entries."""
 
 VERBOSE: bool = False
@@ -507,7 +507,7 @@ class ShuffleCols(Matrix):
 
 class QR_Q(Matrix):
     """Q from QR (orthogonalizes)"""
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_NUMEL_LINALG*2
     def generate(self, b, h, w):
         transpose = h < w
         if transpose:
@@ -520,7 +520,7 @@ class QR_Q(Matrix):
 
 class QR_R(Matrix):
     """R from QR"""
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_NUMEL_LINALG*2
     WEIGHT=0.1
     def generate(self, b, h, w):
         T = False
@@ -854,7 +854,7 @@ class Vandermonde(Matrix):
 
 class Cholesky(Matrix):
     SQUARE = True
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_NUMEL_LINALG*2
     def generate(self, b, h, w):
         assert h == w
 
@@ -865,7 +865,7 @@ class Cholesky(Matrix):
 class Sketch(Matrix):
     """projects"""
     SQUARE = True
-    MAX_NUMEL = MAX_NUMEL_LINALG
+    MAX_NUMEL = MAX_NUMEL_LINALG*4
     BRANCHES = True
     def generate(self, b, h, w):
         assert h == w
