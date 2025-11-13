@@ -1034,12 +1034,12 @@ class Conv2D(Matrix):
 
 class Cut(Matrix):
     def generate(self, b, h, w):
-        rows = self.rng.random.randrange(0, max(h//4, 1))
-        cols = self.rng.random.randrange(0, max(w//4, 1))
+        rows = h - self.rng.random.randrange(0, max(h//4, 1))
+        cols = w - self.rng.random.randrange(0, max(w//4, 1))
 
         ch = self.rng.random.choice([0,1,2])
-        if ch == 0: rows = 0
-        if ch == 1: cols = 0
+        if ch == 0: rows = h
+        if ch == 1: cols = w
 
         A = self.get_random_matrix(b, rows, cols, base=True)
 
@@ -1190,7 +1190,8 @@ class AddNoise(Matrix):
     WEIGHT = 1.5
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
-        scale = torch.linalg.vector_norm(A, dim=(-2,-1), keepdim=True) * self.rng.random.triangular(0, 1, 0)**2
+        norm = torch.linalg.vector_norm(A, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
+        scale = norm * self.rng.random.triangular(0, 1, 0)**2
 
         r = torch.randn(A.size(), device=A.device, dtype=A.dtype, generator=self.generator) * scale
         A += r
