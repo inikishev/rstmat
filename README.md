@@ -53,8 +53,7 @@ I tried to make the matrices to be reasonable on average, but outliers happen to
 
 #### Value range
 
-Matrices generally have reasonable values but sometimes you get matrices with very large values.
-I tried to make the matrices have a reasonable distribution on average. We can look at various statistics to see what matrices are generated:
+Matrices generally have reasonable values but sometimes you get matrices with very large values, although you will never get nans or infinities. So if applicable, it might be a good idea to normalize the generated matrices.
 
 <details>
 <summary>Statistics for 32 sample matrices</summary>
@@ -107,7 +106,7 @@ min = -8.93437, max=16.87033, mean=0.02283, std=0.62715
 
 #### Rank and condition number
 
-Around 75% are full-rank, condition number varies greatly
+Around 75% of generated matrices are full-rank, condition number varies greatly. Although this depends on size of the matrix.
 <details>
 <summary>Statistics for 32 sample matrices</summary>
 
@@ -157,8 +156,15 @@ rank = 121/128, cond=11409373184.0
 
 </details>
 
+## Performance
+Generating large matrices (e.g. 4096 by 4096) might take a few seconds. You can make penalties stronger, for example
+```py
+A = random_matrix((4096, 4096), branch_penalty=0.7, ops_penalty=0.7)
+```
+This will penalize very long operation trees, so you get simpler matrices, but it will be faster.
+
 ## Other stuff
 
 It's easy to define new matrix types, you can look at the code in <https://github.com/inikishev/rstmat/blob/main/rstmat/matrix.py> .
-What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution.
-So if you add a new matrix type weights may need to be tuned again so as to not have some kind of matrix dominate.
+
+What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution, where some particular kind of matrix (e.g. sparse) becomes to dominate. All matrices have weights which determine the probabilities of getting picked, those are somewhat tuned to get diverse matrices.
