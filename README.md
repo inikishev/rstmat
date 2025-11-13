@@ -157,13 +157,15 @@ rank = 121/128, cond=11409373184.0
 </details>
 
 ## Performance
-Generating large matrices (e.g. 4096 by 4096) might take up to a few seconds depending on how complicated the tree of operations is. You can make penalties stronger, for example
+Generating large matrices (e.g. 4096 by 4096) might take up to a few seconds depending on how complicated the tree of operations is. You can make penalties stronger, for example:
+
 ```py
 A = random_matrix((4096, 4096), branch_penalty=0.7, ops_penalty=0.7, device='cuda')
 ```
+
 This will penalize very long operation trees, so you get simpler matrices, but it will be faster.
 
-Most of the operations happen on the device you specify (default is `torch.get_default_device()` which defaults to CPU). Smaller matrices (under 256 by 256) are typically faster to generate on CPU.
+Most of the operations happen on the device you specify (default is `torch.get_default_device()` which defaults to CPU). Smaller matrices (under around 128 by 128) are typically faster to generate on CPU. Larger matrices become significantly faster on GPU.
 
 ## Other stuff
 
