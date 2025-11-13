@@ -8,46 +8,57 @@ matrices = []
 for i in range(128):
     matrices.append(random_matrix((64, 64)))
 ```
+
 <img width="3211" height="1611" alt="image" src="https://github.com/user-attachments/assets/96a1cdeb-900d-46b7-a207-87b57737fd61" />
 
 It can also generate rectangular matrices
+
 ```py
 for i in trange(16):
     matrices.append(random_matrix((512, 64))
 ```
+
 <img width="3211" height="1553" alt="image" src="https://github.com/user-attachments/assets/6751ab53-0ebb-4d66-ac4a-097c21704820" />
 
 You can also generate a batch of matrices which is faster. However note that all matrices in one batch will share the same tree of operations, so they will basically look similar:
+
 ```py
 batch = random_matrix((16, 64, 64))
 ```
+
 <img width="491" height="491" alt="image" src="https://github.com/user-attachments/assets/541818d8-7003-417d-8b8f-f39755c2502e" />
 
 ## Installation
+
 ```bash
 pip install rstmat
 ```
 
 ## Why
-If you want to test some algorithm on random matrices or fit some linear algebra approximation model, performance on matrices with normally-distributed entries rarely generalizes to performance on real tasks. 
+
+If you want to test some algorithm on random matrices or fit some linear algebra approximation model, performance on matrices with normally-distributed entries rarely generalizes to performance on real tasks.
 So I tried to fix that by generating random structured matrices.
 
 ## How it works
-It picks a random matrix type of which there are many. For example `RandomNormal` generates a matrix with normally distributed entries. 
 
-However many matrix types generate other matrices by calling `random_matrix` recursively which is how you get structured matrices. 
+It picks a random matrix type of which there are many. For example `RandomNormal` generates a matrix with normally distributed entries.
+
+However many matrix types generate other matrices by calling `random_matrix` recursively which is how you get structured matrices.
 
 For example, `AAT` generates another matrix and computes $A A^\text{T}$. `AB` generates two matrices and computes their product. `RowCat` generates two matrices and concatenates rows. The matrices those generate might themselves request to generate more matrices.
 
 ## Distribution of generated matrices
+
 I tried to make the matrices to be reasonable on average, but outliers happen too. We can look at various statistics to see what matrices are generated.
 
 #### Value range
+
 Matrices generally have reasonable values but sometimes you get matrices with very large values.
 I tried to make the matrices have a reasonable distribution on average. We can look at various statistics to see what matrices are generated:
 
 <details>
-<summary>Click to view the code and the statistics for 32 sample matrices</summary>
+<summary>Statistics for 32 sample matrices</summary>
+
 ```python
 matrices = []
 for i in range(32):
@@ -56,6 +67,7 @@ for i in range(32):
 ```
 
 output:
+
 ```
 min = 0.00000, max=0.36568, mean=0.00170, std=0.01367
 min = -0.00160, max=0.00799, mean=0.00136, std=0.00310
@@ -90,13 +102,15 @@ min = -0.99463, max=1.02445, mean=0.00028, std=0.15895
 min = -965.15588, max=-79.21937, mean=-152.21527, std=76.95900
 min = -8.93437, max=16.87033, mean=0.02283, std=0.62715
 ```
+
 </details>
 
 #### Rank and condition number
 
 Around 75% are full-rank, condition number varies greatly
 <details>
-<summary>Click to view the code and the statistics for 32 sample matrices</summary>
+<summary>Statistics for 32 sample matrices</summary>
+
 ```python
 matrices = []
 matrix.VERBOSE =  False
@@ -107,6 +121,7 @@ for i in range(32):
 ```
 
 output:
+
 ```
 rank = 7/128, cond=inf
 rank = 127/128, cond=212265.09375
@@ -141,18 +156,11 @@ rank = 128/128, cond=1.0
 rank = 128/128, cond=3316.430419921875
 rank = 121/128, cond=11409373184.0
 ```
+
 </details>
 
 ### Other stuff
-It's easy to define new matrix types, you can look at the code in https://github.com/inikishev/rstmat/blob/main/rstmat/matrix.py . 
-What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution. 
+
+It's easy to define new matrix types, you can look at the code in <https://github.com/inikishev/rstmat/blob/main/rstmat/matrix.py> .
+What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution.
 So if you add a new matrix type weights may need to be tuned again so as to not have some kind of matrix dominate.
-
-
-
-
-
-
-
-
-
