@@ -568,7 +568,7 @@ class Kron(Matrix):
     BRANCHES = True
     def generate(self, b, h, w):
         h1 = int(self.rng.random.triangular(1, max(h-1, 1), 1))
-        w1 = int(self.rng.random.triangular(1, max(h-1, 1), 1))
+        w1 = int(self.rng.random.triangular(1, max(w-1, 1), 1))
 
         h2 = math.ceil(h / h1)
         w2 = math.ceil(w / w1)
