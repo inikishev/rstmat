@@ -412,6 +412,7 @@ class ElementwiseProduct(Matrix):
         return A * B
 
 class ElementwiseSign(Matrix):
+    WEIGHT = 0.2
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).sign()
 
@@ -420,6 +421,7 @@ class ElementwiseAbs(Matrix):
         return self.get_random_matrix(b, h, w, base=True).abs()
 
 class ElementwiseRound(Matrix):
+    WEIGHT = 0.5
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).round(decimals=self.rng.random.randrange(0, 4))
 
