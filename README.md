@@ -157,7 +157,7 @@ rank = 121/128, cond=11409373184.0
 </details>
 
 ## Performance
-Generating large matrices (e.g. 4096 by 4096) might take a few seconds. You can make penalties stronger, for example
+Generating large matrices (e.g. 4096 by 4096) might take up to a few seconds depending on how complicated the tree of operations is. You can make penalties stronger, for example
 ```py
 A = random_matrix((4096, 4096), branch_penalty=0.7, ops_penalty=0.7, device='cuda')
 ```

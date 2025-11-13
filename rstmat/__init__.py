@@ -19,7 +19,23 @@ def random_matrix(
     ops_penalty: float = 0.9,
 
     seed: int | None | RNG = None,
-):
+) -> torch.Tensor:
+    """Generate a random structured matrix.
+
+    Args:
+        size (int | Sequence[int]):
+            Size of the matrix with two or more dimensions.
+            All but last two dimensions are considered batch dimensions.
+            All matrices in a batch will be generated using the same tree of operations.
+        dtype (torch.dtype, optional): dtype of the matrix. Defaults to torch.get_default_dtype().
+        device (torch.types.Device, optional): device to generate on. Defaults to torch.get_default_device().
+        branch_penalty (float, optional):
+            reducing this makes matrices less structured but faster to generate. Defaults to 0.9.
+        ops_penalty (float, optional):
+            reducing this makes matrices less structured but faster to generate. Defaults to 0.9.
+        seed (int | None | RNG, optional): random seed. Defaults to None.
+
+    """
     rng = RNG(seed)
 
     if isinstance(size, int):

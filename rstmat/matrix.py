@@ -427,6 +427,7 @@ class Clip(Matrix):
         return A.clip(lower, upper)
 
 class ClipToQuantile(Matrix):
+    MAX_NUMEL = 8_000_000
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         qlow = self.rng.random.triangular(0.01, 0.99, 0.01) ** 2
