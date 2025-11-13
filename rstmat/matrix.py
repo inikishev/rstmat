@@ -1230,7 +1230,7 @@ class SortNorms(Matrix):
 
         dim = self.rng.random.choice([1, 2])
         p = self.rng.random.choice([-torch.inf, -2, -1, -0.5, 0.5, 1, 2, torch.inf])
-        indices = A.norm(p, dim=dim, keepdim=True)
+        indices = A.norm(p, dim=dim).argsort(-1)
         return A.take_along_dim(indices, dim)
 
 class Argsort(Matrix):
