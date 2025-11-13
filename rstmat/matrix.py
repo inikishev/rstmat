@@ -1032,6 +1032,26 @@ class Conv2D(Matrix):
 
         return A.squeeze(0)
 
+class Cut(Matrix):
+    def generate(self, b, h, w):
+        rows = self.rng.random.randrange(0, max(h//4, 1))
+        cols = self.rng.random.randrange(0, max(w//4, 1))
+
+        ch = self.rng.random.choice([0,1,2])
+        if ch == 0: rows = 0
+        if ch == 1: cols = 0
+
+        A = self.get_random_matrix(b, rows, cols, base=True)
+
+        if self.rng.random.random() > 0.5: A = A[:, :h]
+        else: A = A[:, -h:]
+
+        if self.rng.random.random() > 0.5: A = A[:, :, :w]
+        else: A = A[:, :, -w:]
+
+        return A
+
+
 class GridSample(Matrix):
     BRANCHES = True
     MAX_NUMEL = MAX_LINALG_NUMEL
@@ -1155,10 +1175,10 @@ class SoftenNorm(Matrix):
         A = self.get_random_matrix(b, h, w, base=True)
 
         p = self.rng.random.choice([2, torch.inf])
-        norm = A.norm(p, dim=(-2,-1), keepdim=True)
+        norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
         if (norm < torch.finfo(A.dtype).tiny * 2).any():
             A = A + torch.randn_like(A) * 0.1
-            norm = A.norm(p, dim=(-2,-1), keepdim=True)
+            norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
 
         target_norm = norm.lerp(torch.ones_like(norm), weight=self.rng.random.triangular(0,1,1)**2)
         scale = target_norm / norm
@@ -1170,7 +1190,7 @@ class AddNoise(Matrix):
     WEIGHT = 1.5
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
-        scale = A.norm(p="fro", dim=(-2,-1), keepdim=True) * self.rng.random.triangular(0, 1, 0)**2
+        scale = torch.linalg.vector_norm(A, dim=(-2,-1), keepdim=True) * self.rng.random.triangular(0, 1, 0)**2
 
         r = torch.randn(A.size(), device=A.device, dtype=A.dtype, generator=self.generator) * scale
         A += r
@@ -1277,7 +1297,7 @@ class SortNorms(Matrix):
 
         dim = self.rng.random.choice([1, 2])
         p = self.rng.random.choice([-torch.inf, -2, -1, -0.5, 0.5, 1, 2, torch.inf])
-        indices = A.norm(p, dim=(0, 3-dim), keepdim=True).argsort(dim)
+        indices = torch.linalg.vector_norm(A, p, dim=(0, 3-dim), keepdim=True).argsort(dim) # pylint:disable=not-callable
         return A.take_along_dim(indices, dim)
 
 class Argsort(Matrix):
