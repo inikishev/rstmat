@@ -14,10 +14,10 @@ from torch.nn import functional as F
 from .rng import RNG
 
 MAX_LINALG_NUMEL: int = 512 * 512
-"""Decompositions will never be picked for matrices with more than this many entries."""
+"""Controls max number of entries for expensive operations (some use two or four times this value)."""
 
 MAX_LINALG_SIZE: int = 512
-"""Decompositions will never be picked for matrices with largest dimension larger than this"""
+"""Controls max size of largest dim for expensive operations (some use two or four times this value)."""
 
 VERBOSE: bool = False
 """If true, prints which matrices are picked"""
@@ -968,16 +968,17 @@ class BinaryFuncPatch(Matrix):
 
 class Conv2D(Matrix):
     BRANCHES = True
-    MAX_NUMEL = MAX_LINALG_NUMEL*2
+    MAX_NUMEL = MAX_LINALG_NUMEL * 4
+    MAX_SIZE = MAX_LINALG_SIZE * 4
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         if h <= 2 or w <= 2: return A
 
-        filt_h = self.rng.random.randrange(1, h-1)
-        filt_w = self.rng.random.randrange(1, w-1)
+        filt_h = math.floor(self.rng.random.triangular(1, h-1, 1))
+        filt_w = math.floor(self.rng.random.triangular(1, w-1, 1))
         use_dilation = self.rng.random.random() > 0.5
         if use_dilation and min(h-1, w-1) > 1:
-            dilation = self.rng.random.randrange(1, min(h-1, w-1))
+            dilation = math.floor(self.rng.random.triangular(1, min(h-1, w-1), 1))
         else:
             dilation = 1
 
@@ -988,7 +989,8 @@ class Conv2D(Matrix):
 
 class GridSample(Matrix):
     BRANCHES = True
-    MAX_NUMEL = 1000 * 1000
+    MAX_NUMEL = MAX_LINALG_NUMEL
+    MAX_SIZE = MAX_LINALG_SIZE
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
 
