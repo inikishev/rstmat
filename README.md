@@ -113,8 +113,6 @@ Around 75% are full-rank, condition number varies greatly
 
 ```python
 matrices = []
-matrix.VERBOSE =  False
-matrices = []
 for i in range(32):
     m = random_matrix((128, 128))
     print(f'rank = {torch.linalg.matrix_rank(m).item()}/128, cond={torch.linalg.cond(m).item()}')
