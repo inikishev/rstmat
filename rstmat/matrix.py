@@ -69,6 +69,12 @@ class Matrix(ABC):
 
     def get_random_matrix(self, b: int, h: int, w: int, base:bool):
         self.num_ops += 1
+
+        if VERBOSE:
+            t = '|'*(self.level-1)
+            t = f'{t} '
+            print(f'{t}{self.__class__.__name__} requested a {(b, h, w)} matrix, level = {self.level}.', file=VERBOSE_FILE)
+
         return _get_random_matrix(
             b=b,
             h=h,
@@ -1217,6 +1223,26 @@ class Jitter(Matrix):
         eps = torch.finfo(A.dtype).eps
         return A + torch.randn(A.size(-1), device=A.device, dtype=A.dtype, generator=self.generator) * eps
 
+class Roll(Matrix):
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        dim = self.rng.random.choice([1,2])
+        maxdim = A.size(dim)
+        if maxdim == 1: return A
+        n = self.rng.random.randrange(1, maxdim)
+        A = A.roll(n, dim)
+        return A
+
+class FlatRoll(Matrix):
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        maxdim = h * w
+        if maxdim == 1: return A
+
+        n = self.rng.random.randrange(1, maxdim)
+        A = A.reshape(b, -1).roll(n, 1).reshape(b, h, w)
+        return A
+
 class Cumsum(Matrix):
     WEIGHT = 0.2
     def generate(self, b, h, w):
@@ -1452,6 +1478,9 @@ def _get_random_matrix(
     device: torch.types.Device,
     rng: RNG,
 ):
+    t = '|'*(level-1)
+    t = f'{t} '
+
     if h == 1 and w == 1:
         arr = rng.numpy.triangular(left=0, mode=0, right=1, size=(b,h,w))**10 * 10
         signs = torch.randint(0, 2, (b,h,w), generator=rng.torch(device), device=device, dtype=dtype) * 2 - 1
@@ -1466,7 +1495,7 @@ def _get_random_matrix(
     mtype = rng.random.choices(matrices, weights, k=1)[0]
 
     if VERBOSE:
-        print(f'Generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }', file=VERBOSE_FILE)
+        print(f'{t}Generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }', file=VERBOSE_FILE)
 
     if any(i == 0 for i in (b, h, w)):
         raise RuntimeError('Requested a matrix with 0 shape')
@@ -1480,16 +1509,16 @@ def _get_random_matrix(
         ).generate(b, h, w)
 
         seconds = time.perf_counter() - start
-        if seconds > 1:
-            if res.is_cuda: torch.cuda.empty_cache()
+        # if seconds > 1:
+        #     if res.is_cuda: torch.cuda.empty_cache()
 
         if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
             warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
 
         if VERBOSE:
-            print(f'took {seconds} seconds', file=VERBOSE_FILE)
+            print(f'{t}Generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds:.5f} seconds, {level = }', file=VERBOSE_FILE)
 
-    except (RuntimeError, ValueError) as e:
+    except (RuntimeError, ValueError, TypeError) as e:
         # add warning to see what type of matrix it was
         warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }")
         raise e from None # cuda out of memory
