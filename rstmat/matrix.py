@@ -1037,7 +1037,7 @@ class BatchUnwrap(Matrix):
         if h <= 2: return self.get_random_matrix(b, h, w, base=True)
         n = b * h * w
 
-        br = self.rng.random.randrange(1, max(n-2, 2))
+        br = self.rng.random.randrange(1, min(max(n-2, 2), 1024))
         hr = self.rng.random.randrange(1, max(2, math.ceil(n/br - 1)))
         wr = math.ceil(n / (hr * br))
 
