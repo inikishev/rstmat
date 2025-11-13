@@ -1386,6 +1386,8 @@ def _get_random_matrix(
             warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
 
     except RuntimeError as e:
+        # add warning to see what type of matrix it was
+        warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }")
         raise e from None # cuda out of memory
 
     except Exception as e:
@@ -1398,7 +1400,12 @@ def _get_random_matrix(
             if res.is_cuda: torch.cuda.empty_cache()
 
         except Exception:
-            raise e from None # cuda out of memory which for some reason every once in a while is an assertion error
+             # cuda out of memory which for some reason every once in a while is a device assertion error
+            warnings.warn(
+                "Exception when printing exception when generating a "
+                f"{(b, h, w)} matrix with {mtype.__name__}, {level = }"
+            )
+            raise e from None
 
     if res.shape != (b, h, w):
         raise RuntimeError(f"When generating a {(b, h, w)} matrix, {mtype.__name__} returned {res.shape} instead.")
