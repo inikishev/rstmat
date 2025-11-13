@@ -1331,7 +1331,7 @@ def _get_random_matrix(
 ):
     if h == 1 and w == 1:
         arr = rng.numpy.triangular(left=0, mode=0, right=1, size=(b,h,w))**10 * 10
-        signs = torch.randint(0, 2, (b,h,w), generator=rng.torch(device)) * 2 - 1
+        signs = torch.randint(0, 2, (b,h,w), generator=rng.torch(device), device=device, dtype=dtype) * 2 - 1
         return torch.as_tensor(arr, device=device, dtype=dtype).copysign(signs)
 
     if level >= 30 or num_ops >= 40:
