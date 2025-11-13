@@ -13,7 +13,7 @@ from torch.nn import functional as F
 
 from .rng import RNG
 
-MAX_NUMEL_LINALG = 4_000 * 4_000
+MAX_NUMEL_LINALG = 4096 * 4096
 VERBOSE = False
 WARN_SECONDS_TO_GENERATE = None
 
@@ -106,7 +106,11 @@ class Bernoulli(Matrix):
         if max <= torch.finfo(A.dtype).tiny * 2: return torch.randn_like(A)
 
         A /= max
-        return torch.bernoulli(A, generator=self.generator)
+        try:
+            return torch.bernoulli(A, generator=self.generator)
+        except RuntimeError:
+            # for some reason every once in a while it would think A has entries larger than 1
+            return torch.randn_like(A)
 
 class Sparsify(Matrix):
     WEIGHT = 0.5
@@ -1357,7 +1361,7 @@ def _get_random_matrix(
 
 
     matrices = _get_matrices(h, w, base=base)
-    weights = [_get_weight(m, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, numel=h*w) for m in matrices]
+    weights = [_get_weight(m, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, numel=b*h*w) for m in matrices]
     mtype = rng.random.choices(matrices, weights, k=1)[0]
 
     if VERBOSE:
