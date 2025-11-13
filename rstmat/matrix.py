@@ -13,9 +13,14 @@ from torch.nn import functional as F
 
 from .rng import RNG
 
-MAX_NUMEL_LINALG = 4096 * 4096
-VERBOSE = False
-WARN_SECONDS_TO_GENERATE = None
+MAX_NUMEL_LINALG: int = 4096 * 4096
+"""Decompositions will never be picked for matrices with more than this many entries."""
+
+VERBOSE: bool = False
+"""If true, prints which matrices are picked"""
+
+WARN_SECONDS_TO_GENERATE: float | None = None
+"""If not None, whenever matrix takes more than this many seconds to generate, emits a warning"""
 
 class Matrix(ABC):
     """
