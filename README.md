@@ -6,7 +6,7 @@ With `rstmat` you can generate random structured matrices:
 from rstmat import random_matrix
 matrices = []
 for i in range(128):
-    matrices.append(random_matrix((64, 64)))
+    matrices.append(random_matrix((64, 64))) # is torch.Tensor
 ```
 
 <img width="3211" height="1611" alt="image" src="https://github.com/user-attachments/assets/96a1cdeb-900d-46b7-a207-87b57737fd61" />
@@ -172,7 +172,7 @@ For large matrices it is recommended to install opt_einsum and enable it:
 
 ```py
 import torch.backends.opt_einsum
-torch.backends.opt_einsum.enabled = opt_einsum
+torch.backends.opt_einsum.enabled = True
 ```
 
 ## Other stuff
@@ -180,3 +180,4 @@ torch.backends.opt_einsum.enabled = opt_einsum
 It's easy to define new matrix types, you can look at the code in <https://github.com/inikishev/rstmat/blob/main/rstmat/matrix.py> .
 
 What I found however is that when you make even a slight change to weights of matrix types, it might significantly impact final distribution, where some particular kind of matrix (e.g. sparse) becomes to dominate. All matrices have weights which determine the probabilities of getting picked, those are somewhat tuned to get diverse matrices.
+
