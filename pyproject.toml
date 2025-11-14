@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 name = "rstmat"
 description = "Random structured matrices."
 
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
   "torch",
   "numpy",
