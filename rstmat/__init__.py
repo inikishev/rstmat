@@ -16,8 +16,7 @@ def random_matrix(
     dtype: torch.dtype = torch.get_default_dtype(),
     device: torch.types.Device = torch.get_default_device(),
 
-    branch_penalty: float = 0.9,
-    ops_penalty: float = 0.9,
+    depth_penalty = 0.05,
 
     seed: int | None | RNG = None,
 ) -> torch.Tensor:
@@ -30,10 +29,8 @@ def random_matrix(
             All matrices in a batch will be generated using the same tree of operations.
         dtype (torch.dtype, optional): dtype of the matrix. Defaults to torch.get_default_dtype().
         device (torch.types.Device, optional): device to generate on. Defaults to torch.get_default_device().
-        branch_penalty (float, optional):
-            reducing this makes matrices less structured but faster to generate. Defaults to 0.9.
-        ops_penalty (float, optional):
-            reducing this makes matrices less structured but faster to generate. Defaults to 0.9.
+        depth_penalty (float, optional):
+            larger values make matrices less structured but faster to generate, value must be in (0,1) range where 1 means there is only one level of nesting at most. Defaults to 0.1.
         seed (int | None | RNG, optional): random seed. Defaults to None.
 
     """
@@ -51,8 +48,8 @@ def random_matrix(
         b = math.prod(b_l)
 
     A = _get_random_matrix(
-        b=b, h=h, w=w, base=True, level=1, num_ops=1, branch_penalty=branch_penalty,
-        ops_penalty=ops_penalty, dtype=dtype, device=device, rng=rng,
+        b=b, h=h, w=w, base=True, level=0, num_ops=1, branch_penalty=(1-depth_penalty),
+        ops_penalty=(1-depth_penalty), dtype=dtype, device=device, rng=rng,
     )
 
     if len(b_l) == 0: return A[0]
