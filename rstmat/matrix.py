@@ -433,6 +433,13 @@ class ElementwiseSqrtAbs(Matrix):
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).abs().sqrt()
 
+class ElementwiseEpsReciprocal(Matrix):
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        eps = torch.empty(b, 1, 1, device=self.device, dtype=self.dtype).uniform_(0.5, 2, generator=self.generator)
+        A_eps = (A.abs() + eps).copysign(A)
+        return 1 / A_eps
+
 class ElementwiseDivCAddAbs(Matrix):
     """element-wise A / (B.abs() + eps)"""
     BRANCHES = True
@@ -440,7 +447,29 @@ class ElementwiseDivCAddAbs(Matrix):
         A = self.get_random_matrix(b, h, w, base=False)
         B = self.get_random_matrix(b, h, w, base=False)
         eps = torch.empty(b, 1, 1, device=self.device, dtype=self.dtype).uniform_(0.5, 2, generator=self.generator)
-        return A / (B.abs() + eps)
+        B_eps = (B.abs() + eps).copysign(B)
+        return A / B_eps
+
+class ElementwiseFloorDivCAddAbs(Matrix):
+    """element-wise A / (B.abs() + eps)"""
+    BRANCHES = True
+    WEIGHT = 0.2
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        B = self.get_random_matrix(b, h, w, base=False)
+        eps = torch.empty(b, 1, 1, device=self.device, dtype=self.dtype).uniform_(0.5, 2, generator=self.generator)
+        B_eps = (B.abs() + eps).copysign(B)
+        return A // B_eps
+
+class ElementwiseModuloCAddAbs(Matrix):
+    """element-wise A / (B.abs() + eps)"""
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        B = self.get_random_matrix(b, h, w, base=False)
+        eps = torch.empty(b, 1, 1, device=self.device, dtype=self.dtype).uniform_(0.5, 2, generator=self.generator)
+        B_eps = (B.abs() + eps).copysign(B)
+        return A % B_eps
 
 class ElementwiseTanh(Matrix):
     def generate(self, b, h, w):
@@ -449,6 +478,16 @@ class ElementwiseTanh(Matrix):
 class ElementwiseSin(Matrix):
     def generate(self, b, h, w):
         return self.get_random_matrix(b, h, w, base=True).sin()
+
+class ElementwiseFloorDiv(Matrix):
+    def generate(self, b, h, w):
+        d = self.rng.random.triangular(0.1, 10, 2)
+        return self.get_random_matrix(b, h, w, base=True).floor_divide(d)
+
+class ElementwiseModulo(Matrix):
+    def generate(self, b, h, w):
+        d = self.rng.random.triangular(0.1, 10, 2)
+        return self.get_random_matrix(b, h, w, base=True) % d
 
 class RowSoftmax(Matrix):
     WEIGHT = 0.25
@@ -530,6 +569,7 @@ class Clip(Matrix):
 
 class ClipToQuantile(Matrix):
     MAX_NUMEL = 8_000_000
+    WEIGHT = 3
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         qlow = self.rng.random.triangular(0.01, 0.99, 0.01) ** 2
@@ -1079,6 +1119,20 @@ class ReplacePatch(Matrix):
         A[:, h_start:h_end, w_start:w_end] = self.get_random_matrix(b, h_end-h_start, w_end-w_start, base=False)
         return A
 
+class ZeroPatch(Matrix):
+    WEIGHT = 0.5
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        if h <= 1 or w <= 1: return A
+
+        h_start = self.rng.random.randrange(0, h-1)
+        w_start = self.rng.random.randrange(0, w-1)
+        h_end = self.rng.random.randrange(h_start+1, h)
+        w_end = self.rng.random.randrange(w_start+1, w)
+
+        A[:, h_start:h_end, w_start:w_end] = 0
+        return A
+
 class BinaryFuncPatch(Matrix):
     BRANCHES = True
     def generate(self, b, h, w):
@@ -1254,7 +1308,7 @@ class SetCol(Matrix):
         return A
 
 class SoftenNorm(Matrix):
-    WEIGHT = 10
+    WEIGHT = 20
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1267,8 +1321,37 @@ class SoftenNorm(Matrix):
         target_norm = norm.lerp(torch.ones_like(norm), weight=self.rng.random.triangular(0,1,0)**2)
         scale = target_norm / norm
 
+        if self.rng.random.random() > 0.5: scale = scale.clip(min=1)
         return A * scale
 
+
+class ReplaceLarge(Matrix):
+    WEIGHT = 10
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        v = 10 ** self.rng.random.triangular(0, 5, 5)
+        mask = A.abs() > v
+        if mask.any():
+            B = self.get_random_matrix(b, h, w, base=False)
+            A = torch.where(mask, B, A)
+
+        return A
+
+class ReplaceSmall(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        v = 10 ** self.rng.random.triangular(-1, -10, -10)
+
+        mask = A.abs() < v
+        if mask.any():
+            B = self.get_random_matrix(b, h, w, base=False)
+            A = torch.where(mask, B, A)
+
+        return A
 
 class SoftenMean(Matrix):
     WEIGHT = 10
@@ -1761,7 +1844,7 @@ def _get_random_matrix(
         if VERBOSE:
             print(f'{t}Generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds:.5f} seconds, {level = }', file=VERBOSE_FILE)
 
-    except (RuntimeError, ValueError, TypeError) as e:
+    except (RuntimeError, ValueError, TypeError, IndexError) as e:
         # add warning to see what type of matrix it was
         warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }")
         raise e from None # cuda out of memory
