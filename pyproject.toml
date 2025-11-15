@@ -29,9 +29,9 @@ keywords = ["linear algebra", "random", "linalg", "torch"]
 
 
 [project.urls]
-Homepage = "https://github.com/inikishev/torchzero"
-Repository = "https://github.com/inikishev/torchzero"
-Issues = "https://github.com/inikishev/torchzero/isses"
+Homepage = "https://github.com/inikishev/rstmat"
+Repository = "https://github.com/inikishev/rstmat"
+Issues = "https://github.com/inikishev/rstmat/isses"
 
 # [tool.setuptools]
 # package-dir = {"" = "src"}
