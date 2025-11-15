@@ -704,6 +704,7 @@ class Tril(Matrix):
 
 class Kron(Matrix):
     BRANCHES = True
+    WEIGHT = 4
     def generate(self, b, h, w):
         h1 = int(self.rng.random.triangular(1, max(h-1, 1), 1))
         w1 = int(self.rng.random.triangular(1, max(w-1, 1), 1))
@@ -725,6 +726,7 @@ class AKron(Matrix):
 
 class RowCat(Matrix):
     BRANCHES = True
+    WEIGHT = 2
     def generate(self, b, h, w):
         if h == 1: return self.get_random_matrix(b, 1, w, base=False)
         idx = self.rng.random.randint(1, h-1)
@@ -734,6 +736,7 @@ class RowCat(Matrix):
 
 class ColCat(Matrix):
     BRANCHES = True
+    WEIGHT = 2
     def generate(self, b, h, w):
         if w == 1: return self.get_random_matrix(b, h, 1, base=False)
         idx = self.rng.random.randint(1, w-1)
@@ -929,6 +932,7 @@ def batched_block_diagonal(*tensors):
 class BlockDiagonal(Matrix):
     """up to 4 blocks"""
     BRANCHES = True
+    WEIGHT = 4
     def generate(self, b, h, w):
         if min(h, w) <= 2: return self.get_random_matrix(b, h, w, base=False)
         n = min(self.rng.random.randint(2, min(h, w)), 4)
@@ -1864,7 +1868,7 @@ def _get_random_matrix(
         signs = torch.randint(0, 2, (b,h,w), generator=rng.torch(device), device=device, dtype=dtype) * 2 - 1
         return torch.as_tensor(arr, device=device, dtype=dtype).copysign(signs)
 
-    if level >= 30 or num_ops >= 40:
+    if level >= 50 or num_ops >= 75:
         return torch.randn((b, h, w), dtype=dtype, device=device, generator=rng.torch(device))
 
 
