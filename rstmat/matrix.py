@@ -1891,32 +1891,32 @@ def _get_random_matrix(
         #     if res.is_cuda: torch.cuda.empty_cache()
 
         if WARN_SECONDS_TO_GENERATE is not None and seconds >= WARN_SECONDS_TO_GENERATE:
-            warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.")
+            warnings.warn(f"generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds} seconds.", stacklevel=3)
 
         if VERBOSE:
             print(f'{t}Generating a {(b, h, w)} matrix with {mtype.__name__} took {seconds:.5f} seconds, {level = }', file=VERBOSE_FILE)
 
-    except (RuntimeError, ValueError, TypeError, IndexError) as e:
-        # add warning to see what type of matrix it was
-        warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }")
-        raise e from None # cuda out of memory
-
     except Exception as e:
-        try:
-            warnings.warn(
-                f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n"
-                f"{e.__class__.__name__}: {e}"
-            )
-            res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
-            if res.is_cuda: torch.cuda.empty_cache()
+        # add warning to see what type of matrix it was
+        warnings.warn(f"Exception when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }", stacklevel=3)
+        raise e
 
-        except Exception:
-             # cuda out of memory which for some reason every once in a while is a device assertion error
-            warnings.warn(
-                "Exception when printing exception when generating a "
-                f"{(b, h, w)} matrix with {mtype.__name__}, {level = }"
-            )
-            raise e from None
+    # except Exception as e:
+    #     try:
+    #         warnings.warn(
+    #             f"Exception caught when generating a {(b, h, w)} matrix with {mtype.__name__}, {level = }:\n"
+    #             f"{e.__class__.__name__}: {e}"
+    #         )
+    #         res = torch.randn((b, h, w), device=device, dtype=dtype, generator=rng.torch(device))
+    #         if res.is_cuda: torch.cuda.empty_cache()
+
+    #     except Exception:
+    #          # cuda out of memory which for some reason every once in a while is a device assertion error
+    #         warnings.warn(
+    #             "Exception when printing exception when generating a "
+    #             f"{(b, h, w)} matrix with {mtype.__name__}, {level = }"
+    #         )
+    #         raise e from None
 
     if res.shape != (b, h, w):
         raise RuntimeError(f"When generating a {(b, h, w)} matrix, {mtype.__name__} returned {res.shape} instead.")
