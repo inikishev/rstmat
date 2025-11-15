@@ -16,7 +16,7 @@ def random_matrix(
     dtype: torch.dtype = torch.get_default_dtype(),
     device: torch.types.Device = torch.get_default_device(),
 
-    depth_penalty: float | None = None,
+    depth_penalty: float = 0.05,
 
     seed: int | None | RNG = None,
 ) -> torch.Tensor:
@@ -30,7 +30,7 @@ def random_matrix(
         dtype (torch.dtype, optional): dtype of the matrix. Defaults to torch.get_default_dtype().
         device (torch.types.Device, optional): device to generate on. Defaults to torch.get_default_device().
         depth_penalty (float, optional):
-            larger values make matrices less structured but faster to generate, value must be in (0,1) range where 1 means there is only one level of nesting at most. None picks automatically based on size. Defaults to None.
+            larger values make matrices less structured but faster to generate, value must be in (0,1) range where 1 means there is only one level of nesting at most. Defaults to 0.05.
         seed (int | None | RNG, optional): random seed. Defaults to None.
 
     """
@@ -47,16 +47,8 @@ def random_matrix(
     else:
         b = math.prod(b_l)
 
-    if depth_penalty is None:
-        numel = h * w
-        if numel < 256 * 256:       depth_penalty = 0.05
-        elif numel < 1024 * 1024:   depth_penalty = 0.075
-        elif numel < 4096 * 4096:   depth_penalty = 0.1
-        else:                       depth_penalty = 0.2
-
-
     A = _get_random_matrix(
-        b=b, h=h, w=w, base=True, level=0, num_ops=1, branch_penalty=(1-depth_penalty),
+        b=b, h=h, w=w, parent=None, base=True, level=0, num_ops=1, branch_penalty=(1-depth_penalty),
         ops_penalty=(1-depth_penalty), dtype=dtype, device=device, rng=rng,
     )
 

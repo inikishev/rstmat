@@ -37,11 +37,11 @@ class Matrix(ABC):
     """Set to ``True`` to prevent this class from being selected by ``random_matrix``.
     Classes with ``abstractmethod`` are never picked regardless of this attribute."""
 
-    BASE = True
-    """If ``True``, this can be picked as a base matrix. If ``False``, this can only be picked recursively
+    ALLOW_INITIAL = True
+    """If ``True``, this can be picked as initial matrix. If ``False``, this can only be picked recursively
     (i.e. when ``AB`` generates two random matrices to matmul, one of them doesn't have to be base.).
 
-    If a matrix is not sufficiently random, i.e. a filled matrix, it shouldn't be base because otherwise
+    If a matrix is not sufficiently random, i.e. a filled matrix, it shouldn't be initial because otherwise
     the batch wouldn't have enough variance.
     """
 
@@ -53,8 +53,15 @@ class Matrix(ABC):
 
     MAX_NUMEL = np.inf
     MAX_SIZE = np.inf
+
     BRANCHES = False
+    """True if this matrix may generate two or more matrices"""
+
     INCREASE_PROB: bool = False
+    """Increases probability of this matrix with deeper levels. This should be set on mtrices that generate no other matrices"""
+
+    ALLOW_CHAIN: bool = True
+    """If false, this matrix can't request itself"""
 
     def __init__(self, level: int, num_ops: int, branch_penalty: float, ops_penalty: float, device, dtype, rng):
         self.level = level
@@ -79,6 +86,7 @@ class Matrix(ABC):
             b=b,
             h=h,
             w=w,
+            parent=self.__class__,
             dtype=self.dtype,
             device=self.device,
             rng=self.rng,
@@ -149,6 +157,7 @@ class Bernoulli(Matrix):
 
 class Sparsify(Matrix):
     WEIGHT = 0.5
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         p = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
@@ -160,6 +169,7 @@ class Sparsify(Matrix):
 
 class SparsifyRows(Matrix):
     WEIGHT = 0.25
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         p = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
@@ -171,6 +181,7 @@ class SparsifyRows(Matrix):
 
 class SparsifyCols(Matrix):
     WEIGHT = 0.25
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         p = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
@@ -182,21 +193,21 @@ class SparsifyCols(Matrix):
 
 
 class Full(Matrix):
-    BASE = False
+    ALLOW_INITIAL = False
     WEIGHT = 0.05
     def generate(self, b, h, w):
         fill_value = self.rng.random.uniform(-2, 2)
         return torch.full(size=(b, h, w), fill_value=fill_value, dtype=self.dtype, device=self.device)
 
 class Zeros(Matrix):
-    BASE = False
+    ALLOW_INITIAL = False
     WEIGHT = 0.05
     def generate(self, b, h, w):
         return torch.zeros(size=(b, h, w), dtype=self.dtype, device=self.device)
 
 class Identity(Matrix):
     """Square identity (for rectangular ReplaceDiag can generate it), this increases odds of identity"""
-    BASE = False
+    ALLOW_INITIAL = False
     SQUARE = True
     WEIGHT = 0.05
     def generate(self, b, h, w):
@@ -204,6 +215,7 @@ class Identity(Matrix):
 
 class Transpose(Matrix):
     """A^T"""
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         return self.get_random_matrix(b, w, h, base=True).mH
 
@@ -386,6 +398,7 @@ class ABCDE(Matrix):
 
 class MatrixPower(Matrix):
     SQUARE = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         p = self.rng.random.randint(2, 10)
         A = self.get_random_matrix(b, h, w, base=True)
@@ -541,6 +554,7 @@ class Gradient(Matrix):
 
 class Standardize(Matrix):
     WEIGHT = 4
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         A -= A.mean(dim=(1,2), keepdim=True)
@@ -549,6 +563,7 @@ class Standardize(Matrix):
 
 class Normalize(Matrix):
     WEIGHT = 3
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -556,25 +571,37 @@ class Normalize(Matrix):
         if ord is None:
             ord = self.rng.random.triangular(1, 10, 1)
 
-        A /= torch.linalg.matrix_norm(A, dim=(-2,-1), keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        norm = torch.linalg.matrix_norm(A, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
+        if self.rng.random.random() < 0.25:
+            norm = norm.clip(min=1)
+
+        A /= norm.clip(min=torch.finfo(A.dtype).tiny * 2)
         return A
 
 class NormalizeMAD(Matrix):
     WEIGHT = 3
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
-        A /= A.abs().mean(dim=(-2,-1), keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        mad = A.abs().mean(dim=(-2,-1), keepdim=True)
+        if self.rng.random.random() < 0.25:
+            mad = mad.clip(min=1)
+
+        A /= mad.clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
         return A
 
 class Centralize(Matrix):
     WEIGHT = 4
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         A -= A.mean(dim=(-2,-1), keepdim=True)
         return A
 
 class Clip(Matrix):
+    WEIGHT = 2
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         Amin = A.amin().item()
@@ -595,6 +622,7 @@ class Clip(Matrix):
 class ClipToQuantile(Matrix):
     MAX_NUMEL = 8_000_000
     WEIGHT = 3
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         qlow = self.rng.random.triangular(0.01, 0.99, 0.01) ** 2
@@ -613,17 +641,20 @@ class ClipToQuantile(Matrix):
         return A.clip(lower, upper)
 
 class Scale(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         scale = torch.randn((b, 1, 1), device=self.device, dtype=self.dtype, generator=self.generator)
         return self.get_random_matrix(b, h, w, base=True) * scale
 
 class Shift(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         shift = torch.randn((b, 1, 1), device=self.device, dtype=self.dtype, generator=self.generator)
         return self.get_random_matrix(b, h, w, base=True) + shift
 
 class NormalizeRows(Matrix):
     WEIGHT = 2
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -631,11 +662,16 @@ class NormalizeRows(Matrix):
         if ord is None:
             ord = self.rng.random.triangular(1, 10, 1)
 
-        A /= torch.linalg.vector_norm(A, dim=(1,), ord=ord, keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        norms = torch.linalg.vector_norm(A, dim=(1,), ord=ord, keepdim=True) # pylint:disable=not-callable
+        if self.rng.random.random() < 0.25:
+            norms = norms.clip(min=1)
+
+        A /= norms.clip(min=torch.finfo(A.dtype).tiny * 2)
         return A
 
 class NormalizeCols(Matrix):
     WEIGHT = 2
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -643,16 +679,22 @@ class NormalizeCols(Matrix):
         if ord is None:
             ord = self.rng.random.triangular(1, 10, 1)
 
-        A /= torch.linalg.vector_norm(A, dim=(2,), ord=ord, keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        norms = torch.linalg.vector_norm(A, dim=(2,), ord=ord, keepdim=True) # pylint:disable=not-callable
+        if self.rng.random.random() < 0.25:
+            norms = norms.clip(min=1)
+
+        A /= norms.clip(min=torch.finfo(A.dtype).tiny * 2)
         return A
 
 class ShuffleRows(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         A = A[:, torch.randperm(h, device=self.device, generator=self.generator)]
         return A
 
 class ShuffleCols(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         A = A[:, :, torch.randperm(w, device=self.device, generator=self.generator)]
@@ -767,7 +809,7 @@ class MaskedMix(Matrix):
 
 class TileRows(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         n = math.ceil(self.rng.random.uniform(2, h/2))
         k = math.ceil(h / n)
@@ -776,7 +818,7 @@ class TileRows(Matrix):
 
 class TileCols(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         n = math.ceil(self.rng.random.uniform(2, w/2))
         k = math.ceil(w / n)
@@ -785,7 +827,7 @@ class TileCols(Matrix):
 
 class RepeatRows(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         n = math.ceil(self.rng.random.uniform(2, h/2))
         k = math.ceil(h / n)
@@ -794,7 +836,7 @@ class RepeatRows(Matrix):
 
 class RepeatCols(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         n = math.ceil(self.rng.random.uniform(2, w/2))
         k = math.ceil(w / n)
@@ -803,7 +845,8 @@ class RepeatCols(Matrix):
 
 class Rank1Normal(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
+    INCREASE_PROB = True
     def generate(self, b, h, w):
         v1 = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
         v2 = torch.randn((b, 1, w), device=self.device, dtype=self.dtype, generator=self.generator)
@@ -812,7 +855,7 @@ class Rank1Normal(Matrix):
 
 class Rank1Rademacher(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         v1 = torch.randint(0, 2, size=(b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator) * 2 - 1
         v2 = torch.randint(0, 2, size=(b, 1, w), device=self.device, dtype=self.dtype, generator=self.generator) * 2 - 1
@@ -821,7 +864,7 @@ class Rank1Rademacher(Matrix):
 
 class Rank1Sparse(Matrix):
     WEIGHT = 0.5
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         p1 = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
         p2 = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
@@ -830,9 +873,21 @@ class Rank1Sparse(Matrix):
 
         return v1 @ v2
 
+class Rank1Nested(Matrix):
+    WEIGHT = 0.5
+    ALLOW_INITIAL = False
+    BRANCHES = True
+    def generate(self, b, h, w):
+        v1 = self.get_random_matrix(1, b, h, base=True).moveaxis(0, 2)
+        v2 = self.get_random_matrix(1, b, w, base=True).moveaxis(0, 1)
+
+        return v1 @ v2
+
+
 class SymmetricRank1Normal(Matrix):
     SQUARE = True
     WEIGHT = 0.25
+    INCREASE_PROB = True
     def generate(self, b, h, w):
         v = torch.randn((b, h), device=self.device, dtype=self.dtype, generator=self.generator)
         return v.unsqueeze(-1) @ v.unsqueeze(-2)
@@ -843,6 +898,14 @@ class SymmetricRank1Sparse(Matrix):
     def generate(self, b, h, w):
         p = self.rng.random.triangular(1e-12, 1, 1e-12) ** 2
         v = torch.bernoulli(torch.full((b, h), p, device=self.device, dtype=self.dtype), generator=self.generator)
+        return v.unsqueeze(-1) @ v.unsqueeze(-2)
+
+class SymmetricRank1Nested(Matrix):
+    SQUARE = True
+    WEIGHT = 0.25
+    BRANCHES = True
+    def generate(self, b, h, w):
+        v = self.get_random_matrix(1, b, h, base=True).squeeze(0)
         return v.unsqueeze(-1) @ v.unsqueeze(-2)
 
 class Rank1Correction(Matrix):
@@ -857,15 +920,36 @@ class SR1Correction(Matrix):
         v = torch.randn((b, h), device=self.device, dtype=self.dtype, generator=self.generator)
         return self.get_random_matrix(b, h, w, base=False) + v.unsqueeze(-1) @ v.unsqueeze(-2)
 
+class Rank1CorrectionNested(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        v1 = self.get_random_matrix(1, b, h, base=True).moveaxis(0, 2)
+        v2 = self.get_random_matrix(1, b, w, base=True).moveaxis(0, 1)
+        return self.get_random_matrix(b, h, w, base=False) + v1 @ v2
+
+class SR1CorrectionNested(Matrix):
+    SQUARE = True
+    BRANCHES = True
+    def generate(self, b, h, w):
+        v = self.get_random_matrix(1, b, h, base=True).squeeze(0)
+        return self.get_random_matrix(b, h, w, base=False) + v.unsqueeze(-1) @ v.unsqueeze(-2)
+
 class TimesRank1(Matrix):
     def generate(self, b, h, w):
         v1 = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
         v2 = torch.randn((b, 1, w), device=self.device, dtype=self.dtype, generator=self.generator)
         return self.get_random_matrix(b, h, w, base=False) * (v1 @ v2)
 
+class TimesRank1Nested(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        v1 = self.get_random_matrix(1, b, h, base=True).moveaxis(0, 2)
+        v2 = self.get_random_matrix(1, b, w, base=True).moveaxis(0, 1)
+        return self.get_random_matrix(b, h, w, base=False) * (v1 @ v2)
+
 
 class Tile(Matrix):
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         h_n = math.ceil(self.rng.random.uniform(2, h/2))
         h_k = math.ceil(h / h_n)
@@ -893,28 +977,30 @@ class ScatterTile(Matrix):
 
 class ConstantRow(Matrix):
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
-        v = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
+        v = self.get_random_matrix(1, b, h, base=True).moveaxis(0, 2)
         return v.repeat(1, 1, w)
 
 class ConstantCol(Matrix):
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
-        v = torch.randn((b, 1, w), device=self.device, dtype=self.dtype, generator=self.generator)
+        v = self.get_random_matrix(1, b, w, base=True).moveaxis(0, 1)
         return v.repeat(1, h, 1)
 
 class RowMean(Matrix):
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         return A.mean(1, keepdim=True).repeat_interleave(repeats=h, dim=1).clone()
 
 class ColMean(Matrix):
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         return A.mean(2, keepdim=True).repeat_interleave(repeats=w, dim=2).clone()
@@ -930,12 +1016,12 @@ def batched_block_diagonal(*tensors):
     return torch.vmap(torch.block_diag, in_dims=tuple(0 for _ in tensors))(*tensors)
 
 class BlockDiagonal(Matrix):
-    """up to 4 blocks"""
+    """up to 8 blocks"""
     BRANCHES = True
-    WEIGHT = 4
+    WEIGHT = 2
     def generate(self, b, h, w):
         if min(h, w) <= 2: return self.get_random_matrix(b, h, w, base=False)
-        n = min(self.rng.random.randint(2, min(h, w)), 4)
+        n = min(self.rng.random.randint(2, min(h, w)), 8)
 
         # splits
         h_splits = self.rng.numpy.uniform(0, 1, size=n)
@@ -998,6 +1084,7 @@ class SpectralMix(Matrix):
         return rec
 
 class PassFilter(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         dim = self.rng.random.choice(((1,), (2,), (1, 2)))
         s = [(b, h, w)[d] for d in dim]
@@ -1027,6 +1114,7 @@ class MoorePenrose(Matrix):
     MAX_NUMEL = MAX_LINALG_NUMEL
     MAX_SIZE = MAX_LINALG_SIZE
     WEIGHT = 0.1
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         try:
@@ -1129,6 +1217,7 @@ class LDL(Matrix):
 
 class Permutation(Matrix):
     WEIGHT = 0.5
+    INCREASE_PROB = True
     def generate(self, b, h, w):
         I = torch.eye(h, w, device=self.device, dtype=self.dtype).unsqueeze(0).repeat_interleave(repeats=b, dim=0).clone()
         return I[:, torch.randperm(h, device=self.device)]
@@ -1338,6 +1427,7 @@ class SetCol(Matrix):
 
 class SoftenNorm(Matrix):
     WEIGHT = 40
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1364,6 +1454,7 @@ class SoftenNorm(Matrix):
 class ReplaceLarge(Matrix):
     WEIGHT = 10
     BRANCHES = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1378,6 +1469,7 @@ class ReplaceLarge(Matrix):
 class ClipLarge(Matrix):
     WEIGHT = 5
     BRANCHES = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1388,6 +1480,7 @@ class ClipLarge(Matrix):
 class ZeroLarge(Matrix):
     WEIGHT = 5
     BRANCHES = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1397,6 +1490,7 @@ class ZeroLarge(Matrix):
 
 class ReplaceSmall(Matrix):
     BRANCHES = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1411,12 +1505,14 @@ class ReplaceSmall(Matrix):
 
 class SoftenMean(Matrix):
     WEIGHT = 10
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         mean = A.mean((1,2), keepdim=True) * self.rng.random.triangular(0,1,0)**2
         return A - mean
 
 class Negative(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         return A.amax() - A
@@ -1424,6 +1520,7 @@ class Negative(Matrix):
 # those three are to make matrices more random on average
 class AddNoise(Matrix):
     WEIGHT = 3
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         norm = torch.linalg.vector_norm(A, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
@@ -1435,6 +1532,7 @@ class AddNoise(Matrix):
 
 class MulNoise(Matrix):
     WEIGHT = 3
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=False)
         scale = self.rng.random.triangular(0, 1, 0)**2
@@ -1445,6 +1543,7 @@ class MulNoise(Matrix):
 class Jitter(Matrix):
     SQUARE = True
     WEIGHT = 5
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         assert h == w
 
@@ -1463,6 +1562,7 @@ class Roll(Matrix):
         return A
 
 class FlatRoll(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         maxdim = h * w
@@ -1474,6 +1574,7 @@ class FlatRoll(Matrix):
 
 class Cumsum(Matrix):
     WEIGHT = 0.2
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1484,6 +1585,8 @@ class Cumsum(Matrix):
 
 class Cummax(Matrix):
     WEIGHT = 0.1
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1495,6 +1598,8 @@ class Cummax(Matrix):
 
 class Cummin(Matrix):
     WEIGHT = 0.1
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -1506,6 +1611,7 @@ class Cummin(Matrix):
 
 class Cumprod(Matrix):
     WEIGHT = 0.05
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
         A = A / A.std().clip(min=1).nan_to_num(1,1,1)
@@ -1517,12 +1623,15 @@ class Cumprod(Matrix):
 
 class FlatCumsum(Matrix):
     WEIGHT = 0.2
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         return A.cumsum(-1).reshape(b, h, w)
 
 class FlatCummax(Matrix):
     WEIGHT = 0.05
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         values, indices = A.cummax(-1)
@@ -1530,6 +1639,8 @@ class FlatCummax(Matrix):
 
 class FlatCummin(Matrix):
     WEIGHT = 0.05
+    ALLOW_INITIAL = False
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         values, indices = A.cummin(-1)
@@ -1591,6 +1702,7 @@ class SortVia(Matrix):
 
 class FlatSort(Matrix):
     WEIGHT = 0.5
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         sorted, indices = A.sort(-1)
@@ -1602,6 +1714,7 @@ class FlatArgsort(Matrix):
         return A.argsort(-1).reshape(b, h, w).to(dtype=A.dtype)
 
 class FlatRank(Matrix):
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True).reshape(b, -1)
         return A.argsort(-1).argsort(-1).reshape(b, h, w).to(dtype=A.dtype)
@@ -1639,6 +1752,7 @@ def zeropower_ns(X:torch.Tensor, niter):
 
 class ZeropowerNS(Matrix):
     SQUARE = True
+    ALLOW_CHAIN = False
     def generate(self, b, h, w):
         assert h == w
         A = self.get_random_matrix(b, h, h, base=False)
@@ -1648,7 +1762,7 @@ class ZeropowerNS(Matrix):
 class Circulant(Matrix):
     SQUARE = True
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         assert h == w
         c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
@@ -1658,7 +1772,7 @@ class Circulant(Matrix):
 class Fielder(Matrix):
     SQUARE = True
     WEIGHT = 0.2
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         assert h == w
         c = self.get_random_matrix(1, b, h, base=True).numpy(force=True)[0]
@@ -1668,7 +1782,7 @@ class Fielder(Matrix):
 class Toeplitz(Matrix):
     WEIGHT = 0.2
     MAX_NUMEL = 128 * 1024 * 1024
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         if b > 128: return self.get_random_matrix(b, h, w, base=True)
 
@@ -1684,7 +1798,7 @@ class Toeplitz(Matrix):
 class Hankel(Matrix):
     WEIGHT = 0.2
     MAX_NUMEL = 128 * 1024 * 1024
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         if b > 128: return self.get_random_matrix(b, h, w, base=True)
 
@@ -1700,7 +1814,7 @@ class Hankel(Matrix):
 class Hadamard(Matrix):
     WEIGHT = 0.2
     SQUARE = True
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         if b > 1: return self.get_random_matrix(b, h, w, base=True)
         if math.log2(h) % 1 != 0: return self.get_random_matrix(b, h, w, base=True)
@@ -1711,7 +1825,7 @@ class Hadamard(Matrix):
 class DFT(Matrix):
     WEIGHT = 0.2
     SQUARE = True
-    BASE = False
+    ALLOW_INITIAL = False
     def generate(self, b, h, w):
         if b > 1: return self.get_random_matrix(b, h, w, base=True)
 
@@ -1735,6 +1849,7 @@ class RandomGraphLaplacian(Matrix):
     """L = D - A. Symmetric Positive Semi-Definite. apparently has some kind of specific sparsity pattern"""
     SQUARE = True
     WEIGHT = 0.1
+    INCREASE_PROB = True
     def generate(self, b, h, w):
         assert h == w
         p = self.rng.random.uniform(0.1, 0.5)
@@ -1748,7 +1863,7 @@ class Householder(Matrix):
     SQUARE = True
     WEIGHT = 0.1
     def generate(self, b, h, w):
-        v = torch.randn((b, h, 1), device=self.device, dtype=self.dtype, generator=self.generator)
+        v = self.get_random_matrix(1, b, h, base=True).moveaxis(0, -1)
         v_norm_sq = (v.mH @ v)
 
         I = torch.eye(h, device=self.device, dtype=self.dtype).unsqueeze(0)
@@ -1825,31 +1940,33 @@ def _get_recursive_subclasses(cls:type) -> set[type]:
         [s for c in cls.__subclasses__() for s in _get_recursive_subclasses(c)])
 
 _MATRICES = [t for t in _get_recursive_subclasses(Matrix) if (not t.ABSTRACT) and (not inspect.isabstract(t))]
-_BASE_MATRICES = [t for t in _MATRICES if t.BASE]
+_ALLOW_INITIAL_MATRICES = [t for t in _MATRICES if t.ALLOW_INITIAL]
 _RECTANGULAR_MATRICES = [t for t in _MATRICES if not t.SQUARE]
-_RECTANGULAR_BASE_MATRICES = [t for t in _RECTANGULAR_MATRICES if t.BASE]
+_RECTANGULAR_ALLOW_INITIAL_MATRICES = [t for t in _RECTANGULAR_MATRICES if t.ALLOW_INITIAL]
 
 def _get_matrices(h:int, w:int, base:bool) -> list[type[Matrix]]:
     if h == w:
-        if base: return _BASE_MATRICES
+        if base: return _ALLOW_INITIAL_MATRICES
         return _MATRICES
 
-    if base: return _RECTANGULAR_BASE_MATRICES
+    if base: return _RECTANGULAR_ALLOW_INITIAL_MATRICES
     return _RECTANGULAR_MATRICES
 
-def _get_weight(matrix: type[Matrix], level, num_ops, branch_penalty, ops_penalty, size):
+def _get_weight(matrix: type[Matrix], parent: type[Matrix] | None, level, num_ops, branch_penalty, ops_penalty, size):
     if math.prod(size) > matrix.MAX_NUMEL: return 0
     if max(size) > matrix.MAX_SIZE: return 0
+    if (not matrix.ALLOW_CHAIN) and matrix == parent: return 0
     w = matrix.WEIGHT
     if matrix.BRANCHES:
         w = w * ((branch_penalty ** level) * (ops_penalty ** num_ops))
-    if matrix.INCREASE_PROB: w = w * 1.1 ** level
+    if matrix.INCREASE_PROB: w = w * 1.2 ** level
     return w
 
 @torch.no_grad
 def _get_random_matrix(
     b: int, h:int, w:int,
 
+    parent: type[Matrix] | None,
     base: bool,
     level: int,
     num_ops: int,
@@ -1868,12 +1985,12 @@ def _get_random_matrix(
         signs = torch.randint(0, 2, (b,h,w), generator=rng.torch(device), device=device, dtype=dtype) * 2 - 1
         return torch.as_tensor(arr, device=device, dtype=dtype).copysign(signs)
 
-    if level >= 50 or num_ops >= 75:
+    if level >= 50 or num_ops >= 100:
         return torch.randn((b, h, w), dtype=dtype, device=device, generator=rng.torch(device))
 
 
     matrices = _get_matrices(h, w, base=base)
-    weights = [_get_weight(m, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, size=(b, h, w)) for m in matrices]
+    weights = [_get_weight(m, parent, level=level, num_ops=num_ops, branch_penalty=branch_penalty, ops_penalty=ops_penalty, size=(b, h, w)) for m in matrices]
     mtype = rng.random.choices(matrices, weights, k=1)[0]
 
     if VERBOSE:
@@ -1930,9 +2047,15 @@ def _get_random_matrix(
     empty_mask = (res - res.mean()).abs_().amax((1,2)) < torch.finfo(res.dtype).tiny * 2
     if empty_mask.any():
         res[empty_mask] = _get_random_matrix(
-            b=int(empty_mask.sum().item()), h=h, w=w, base=base, level=level+1, num_ops=num_ops+1,
+            b=int(empty_mask.sum().item()), h=h, w=w, parent=parent, base=base, level=level+1, num_ops=num_ops+1,
             branch_penalty=branch_penalty, ops_penalty = ops_penalty, dtype=dtype, device=device, rng=rng
         )
+
+    # normalize large
+    maxabs = res.abs().amax()
+    prob = torch.log2(maxabs) / 50
+    if rng.random.random() < prob:
+        res = res / maxabs.clip(min=torch.finfo(maxabs.dtype).eps)
 
     return res
 
