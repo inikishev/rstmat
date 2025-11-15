@@ -548,7 +548,7 @@ class Standardize(Matrix):
         return A
 
 class Normalize(Matrix):
-    WEIGHT = 4
+    WEIGHT = 3
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
@@ -556,14 +556,22 @@ class Normalize(Matrix):
         if ord is None:
             ord = self.rng.random.triangular(1, 10, 1)
 
-        A /= torch.linalg.matrix_norm(A, dim=(1,2), keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        A /= torch.linalg.matrix_norm(A, dim=(-2,-1), keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
+        return A
+
+class NormalizeMAD(Matrix):
+    WEIGHT = 3
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        A /= A.abs().mean(dim=(-2,-1), keepdim=True).clip(min=torch.finfo(A.dtype).tiny * 2) # pylint:disable=not-callable
         return A
 
 class Centralize(Matrix):
     WEIGHT = 4
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
-        A -= A.mean(dim=(1,2), keepdim=True)
+        A -= A.mean(dim=(-2,-1), keepdim=True)
         return A
 
 class Clip(Matrix):
@@ -1325,20 +1333,27 @@ class SetCol(Matrix):
         return A
 
 class SoftenNorm(Matrix):
-    WEIGHT = 20
+    WEIGHT = 40
     def generate(self, b, h, w):
         A = self.get_random_matrix(b, h, w, base=True)
 
-        p = self.rng.random.choice([2, torch.inf])
-        norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
+        p = self.rng.random.choice([2, torch.inf, 'mad'])
+
+        if p == 'mad': norm = A.abs().mean(dim=(-2,-1), keepdim=True)
+        else: norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
+
         if (norm < torch.finfo(A.dtype).tiny * 2).any():
             A = A + torch.randn_like(A) * 0.1
-            norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
+
+            if p == 'mad': norm = A.abs().mean(dim=(-2,-1), keepdim=True)
+            else: norm = torch.linalg.vector_norm(A, p, dim=(-2,-1), keepdim=True) # pylint:disable=not-callable
 
         target_norm = norm.lerp(torch.ones_like(norm), weight=self.rng.random.triangular(0,1,0)**2)
         scale = target_norm / norm
 
         if self.rng.random.random() > 0.5: scale = scale.clip(min=1)
+        elif self.rng.random.random() > 0.25: scale = scale.clip(max=1)
+
         return A * scale
 
 
@@ -1355,6 +1370,26 @@ class ReplaceLarge(Matrix):
             A = torch.where(mask, B, A)
 
         return A
+
+class ClipLarge(Matrix):
+    WEIGHT = 5
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        v = 10 ** self.rng.random.triangular(0, 5, 5)
+        return A.clip(-v,v)
+
+
+class ZeroLarge(Matrix):
+    WEIGHT = 5
+    BRANCHES = True
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+
+        v = 10 ** self.rng.random.triangular(0, 5, 5)
+        return torch.where(A.abs() > v, 0, A)
+
 
 class ReplaceSmall(Matrix):
     BRANCHES = True
