@@ -339,6 +339,7 @@ class ScaleDiag(Matrix):
 class AB(Matrix):
     """Matmul of two matrices, also takes care of low rank"""
     BRANCHES = True
+    WEIGHT = 8
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, min(h,w) * 2)
         A = self.get_random_matrix(b, h, k, base=False)
@@ -347,6 +348,7 @@ class AB(Matrix):
 
 class ABC_(Matrix):
     BRANCHES = True
+    WEIGHT = 4
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, min(h,w) * 2)
         l = self.rng.random.randint(1, min(h,w) * 2)
@@ -357,6 +359,7 @@ class ABC_(Matrix):
 
 class ABCD(Matrix):
     BRANCHES = True
+    WEIGHT = 2
     def generate(self, b, h, w):
         k = self.rng.random.randint(1, min(h,w) * 2)
         l = self.rng.random.randint(1, min(h,w) * 2)
@@ -366,6 +369,20 @@ class ABCD(Matrix):
         C = self.get_random_matrix(b, l, m, base=False)
         D = self.get_random_matrix(b, m, w, base=False)
         return A @ B @ C @ D
+
+class ABCDE(Matrix):
+    BRANCHES = True
+    def generate(self, b, h, w):
+        k = self.rng.random.randint(1, min(h,w) * 2)
+        l = self.rng.random.randint(1, min(h,w) * 2)
+        m = self.rng.random.randint(1, min(h,w) * 2)
+        n = self.rng.random.randint(1, min(h,w) * 2)
+        A = self.get_random_matrix(b, h, k, base=False)
+        B = self.get_random_matrix(b, k, l, base=False)
+        C = self.get_random_matrix(b, l, m, base=False)
+        D = self.get_random_matrix(b, m, n, base=False)
+        E = self.get_random_matrix(b, n, w, base=False)
+        return A @ B @ C @ D @ E
 
 class MatrixPower(Matrix):
     SQUARE = True
