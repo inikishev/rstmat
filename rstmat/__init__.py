@@ -52,5 +52,12 @@ def random_matrix(
         ops_penalty=(1-depth_penalty), dtype=dtype, device=device, rng=rng,
     )
 
+    # scale = (1 + torch.randn((A.shape[0], 1, 1), device=A.device, dtype=A.dtype, generator=rng.torch(A.device)))
+    # shift = (rng.numpy.triangular(left=-1, mode=0, right=1, size=(A.shape[0], 1, 1))**10) * 100
+
+    # A *= scale
+    # A += torch.as_tensor(shift, device=A.device, dtype=A.dtype)
+
     if len(b_l) == 0: return A[0]
+
     return A.reshape(*b_l, h, w)

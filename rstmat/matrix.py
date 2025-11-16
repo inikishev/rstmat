@@ -74,8 +74,14 @@ class Matrix(ABC):
         self.rng = RNG(rng)
         self.generator = self.rng.torch(device)
 
+        self.num_requested = 0
+
     def get_random_matrix(self, b: int, h: int, w: int, base:bool):
         self.num_ops += 1
+
+        if (not self.BRANCHES) and self.num_requested >= 1:
+            raise RuntimeError(f'{self.__class__.__name__} requested more than 1 matrix, it should have BRANCHES=True')
+        self.num_requested += 1
 
         if VERBOSE:
             t = '|'*(self.level-1)
@@ -648,8 +654,45 @@ class Scale(Matrix):
 
 class Shift(Matrix):
     ALLOW_CHAIN = False
+    WEIGHT = 10
     def generate(self, b, h, w):
         shift = torch.randn((b, 1, 1), device=self.device, dtype=self.dtype, generator=self.generator)
+        return self.get_random_matrix(b, h, w, base=True) + shift
+
+# because right now bias is towards positive entries
+class ShiftBack(Matrix):
+    ALLOW_CHAIN = False
+    WEIGHT = 10
+    def generate(self, b, h, w):
+        shift = torch.randn((b, 1, 1), device=self.device, dtype=self.dtype, generator=self.generator).abs()
+        return self.get_random_matrix(b, h, w, base=True) - shift
+
+class ScaleRows(Matrix):
+    BRANCHES = True
+    WEIGHT = 0.25
+    def generate(self, b, h, w):
+        scale = self.get_random_matrix(1, b, h, base=False).moveaxis(0, 2)
+        return self.get_random_matrix(b, h, w, base=True) * scale
+
+class ScaleCols(Matrix):
+    BRANCHES = True
+    WEIGHT = 0.25
+    def generate(self, b, h, w):
+        scale = self.get_random_matrix(1, b, w, base=False).moveaxis(0, 1)
+        return self.get_random_matrix(b, h, w, base=True) * scale
+
+class ShiftRows(Matrix):
+    BRANCHES = True
+    WEIGHT = 0.25
+    def generate(self, b, h, w):
+        shift = self.get_random_matrix(1, b, h, base=False).moveaxis(0, 2)
+        return self.get_random_matrix(b, h, w, base=True) + shift
+
+class ShiftCols(Matrix):
+    BRANCHES = True
+    WEIGHT = 0.25
+    def generate(self, b, h, w):
+        shift = self.get_random_matrix(1, b, w, base=False).moveaxis(0, 1)
         return self.get_random_matrix(b, h, w, base=True) + shift
 
 class NormalizeRows(Matrix):
@@ -1251,6 +1294,47 @@ class ZeroPatch(Matrix):
         A[:, h_start:h_end, w_start:w_end] = 0
         return A
 
+class CopyPatch(Matrix):
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        if h <= 2 or w <= 2: return A
+
+        h_start = math.floor(self.rng.random.triangular(0, h-2, 0))
+        w_start = math.floor(self.rng.random.triangular(0, w-2, 0))
+        h_end = math.floor(self.rng.random.triangular(h_start+1, h-1, h_start+1))
+        w_end = math.floor(self.rng.random.triangular(w_start+1, w-1, w_start+1))
+
+        patch = A[:, h_start:h_end, w_start:w_end].clone()
+        h_pos = self.rng.random.randrange(0, h - patch.size(1))
+        w_pos = self.rng.random.randrange(0, w - patch.size(2))
+
+        A[:, h_pos:h_pos+patch.size(1), w_pos:w_pos+patch.size(2)] = patch
+        return A
+
+class CopyRow(Matrix):
+    WEIGHT = 0.5
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        if h <= 1 or w <= 1: return A
+
+        input = self.rng.random.randrange(0, h)
+        target = self.rng.random.randrange(0, h)
+
+        A[:, target] = A[:, input]
+        return A
+
+class CopyCol(Matrix):
+    WEIGHT = 0.5
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=False)
+        if h <= 1 or w <= 1: return A
+
+        input = self.rng.random.randrange(0, w)
+        target = self.rng.random.randrange(0, w)
+
+        A[:, :, target] = A[:, :, input]
+        return A
+
 class BinaryFuncPatch(Matrix):
     BRANCHES = True
     def generate(self, b, h, w):
@@ -1502,6 +1586,14 @@ class ReplaceSmall(Matrix):
             A = torch.where(mask, B, A)
 
         return A
+
+class MakeNegative(Matrix):
+    WEIGHT = 10
+    ALLOW_CHAIN = False
+    def generate(self, b, h, w):
+        A = self.get_random_matrix(b, h, w, base=True)
+        return A - A.amax((1,2), keepdim=True).clip(min=0)
+
 
 class SoftenMean(Matrix):
     WEIGHT = 10
@@ -1783,6 +1875,7 @@ class Toeplitz(Matrix):
     WEIGHT = 0.2
     MAX_NUMEL = 128 * 1024 * 1024
     ALLOW_INITIAL = False
+    BRANCHES = True
     def generate(self, b, h, w):
         if b > 128: return self.get_random_matrix(b, h, w, base=True)
 
@@ -1799,6 +1892,7 @@ class Hankel(Matrix):
     WEIGHT = 0.2
     MAX_NUMEL = 128 * 1024 * 1024
     ALLOW_INITIAL = False
+    BRANCHES = True
     def generate(self, b, h, w):
         if b > 128: return self.get_random_matrix(b, h, w, base=True)
 
